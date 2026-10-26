@@ -410,7 +410,8 @@ p {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* "safe": se o conteúdo não couber, alinha no topo e deixa rolar */
+  justify-content: safe center;
   gap: 20px;
   padding: 24px 16px;
   overflow-y: auto;
@@ -487,7 +488,7 @@ p {
 
 .options-grid {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 8px 12px;
   align-items: center;
 }
@@ -963,6 +964,8 @@ p {
 }
 
 .modal {
+  max-height: 100%;
+  overflow-y: auto;
   background: var(--surface);
   border: 2px solid var(--line);
   border-radius: 26px;
@@ -1190,4 +1193,110 @@ p {
   border-radius: 999px;
   background: var(--primary);
   transition: width 0.2s;
+}
+
+/* janelas baixas: tela inicial mais compacta */
+@media (max-height: 700px) {
+  .home {
+    gap: 12px;
+    padding: 16px;
+  }
+  .mascot {
+    width: 72px;
+    height: 72px;
+  }
+  .wordmark {
+    font-size: 30px;
+  }
+  .tagline {
+    display: none;
+  }
+  .home-card {
+    padding: 18px;
+    gap: 12px;
+  }
+}
+
+.options-grid .segmented {
+  width: 100%;
+}
+
+.home-settings {
+  z-index: 1;
+}
+
+/* interruptores */
+
+.toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.toggle-row:hover {
+  background: var(--surface-2);
+}
+
+.toggle-row.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toggle-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.toggle-label {
+  font-weight: 800;
+}
+
+.toggle {
+  appearance: none;
+  flex-shrink: 0;
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--surface-2);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s;
+}
+
+.toggle:checked {
+  background: var(--primary);
+  border-color: var(--primary-shade);
+}
+
+.toggle:checked::after {
+  transform: translateX(18px);
+}
+
+.toggle:disabled {
+  cursor: default;
 }

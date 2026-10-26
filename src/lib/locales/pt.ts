@@ -13,6 +13,16 @@ export const pt = {
   themeSystem: "Sistema",
   themeLight: "Claro",
   themeDark: "Escuro",
+  behavior: "Comportamento",
+  startWithWindows: "Iniciar com o Windows",
+  startWithWindowsHint: "Abre escondido na bandeja ao ligar o PC",
+  closeToTray: "Minimizar para a bandeja ao fechar",
+  closeToTrayHint: "O X esconde o app; para sair de vez, use a bandeja",
+  soundEffects: "Efeitos sonoros",
+  soundEffectsHint: "Toca um som quando alguém entra, sai ou abre a tela",
+  trayOpen: "Abrir AbreTela",
+  trayQuit: "Sair",
+  trayLive: "AbreTela — transmitindo",
 
   // início
   yourName: "Seu nome",

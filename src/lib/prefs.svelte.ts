@@ -27,16 +27,19 @@ function detectLang(): Lang {
   return (LANGUAGES.find((l) => l.code === nav)?.code ?? "pt") as Lang;
 }
 
-function load(): { lang: Lang; theme: Theme } {
+type Prefs = { lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean };
+
+function load(): Prefs {
+  let saved: Partial<Prefs> = {};
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    return {
-      lang: saved.lang in DICTS ? saved.lang : detectLang(),
-      theme: ["system", "light", "dark"].includes(saved.theme) ? saved.theme : "system",
-    };
-  } catch {
-    return { lang: detectLang(), theme: "system" };
-  }
+    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+  } catch {}
+  return {
+    lang: saved.lang && saved.lang in DICTS ? saved.lang : detectLang(),
+    theme: saved.theme && ["system", "light", "dark"].includes(saved.theme) ? saved.theme : "system",
+    closeToTray: saved.closeToTray ?? true,
+    sounds: saved.sounds ?? true,
+  };
 }
 
 const state = $state(load());
@@ -64,6 +67,20 @@ export const prefs = {
   },
   set theme(v: Theme) {
     state.theme = v;
+    apply();
+  },
+  get closeToTray() {
+    return state.closeToTray;
+  },
+  set closeToTray(v: boolean) {
+    state.closeToTray = v;
+    apply();
+  },
+  get sounds() {
+    return state.sounds;
+  },
+  set sounds(v: boolean) {
+    state.sounds = v;
     apply();
   },
 };

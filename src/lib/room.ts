@@ -82,6 +82,8 @@ export class RoomClient {
   settings: RoomSettings = DEFAULT_SETTINGS;
   /** Volume/mudo por pessoa (sobrevive à troca de layout). */
   volumes = new Map<string, { volume: number; muted: boolean }>();
+  /** Avisos para efeitos sonoros. */
+  onPeerEvent: ((kind: "join" | "leave" | "live") => void) | null = null;
   /** Quem eu escolhi assistir (pode incluir meu próprio id = prévia). */
   watching = new Set<string>();
   views = new Map<string, RemoteView>();
@@ -202,15 +204,18 @@ export class RoomClient {
         break;
       case "peer-joined":
         this.peers.set(msg.peer.id, msg.peer);
+        this.onPeerEvent?.("join");
         break;
       case "peer-left":
         this.peers.delete(msg.id);
+        this.onPeerEvent?.("leave");
         this.closeOut(msg.id);
         this.dropView(msg.id);
         break;
       case "peer-updated": {
         const p = this.peers.get(msg.id);
         if (p) {
+          if (msg.sharing && !p.sharing && msg.id !== this.selfId) this.onPeerEvent?.("live");
           p.sharing = msg.sharing;
           p.label = msg.label;
         }

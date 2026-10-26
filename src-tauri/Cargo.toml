@@ -7,7 +7,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
@@ -22,6 +22,8 @@ rayon = "1.12.0"
 tauri-plugin-updater = "2.14.0"
 tauri-plugin-process = "2.4.0"
 tauri-plugin-opener = "2.7.2"
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-single-instance = "2.5.4"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Graphics_Dwm"] }

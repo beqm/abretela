@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { makeInvite, type RemoteView, type RoomClient } from "./lib/room";
   import { startNativeCapture, type Source } from "./lib/capture";
   import type { Quality } from "./lib/quality";
   import { t } from "./lib/prefs.svelte";
+  import { sounds } from "./lib/sounds";
   import SourcePicker from "./SourcePicker.svelte";
   import SettingsModal from "./SettingsModal.svelte";
   import Tile from "./Tile.svelte";
@@ -25,6 +26,8 @@
   let tick = $state(0);
   onMount(() => {
     const unsubscribe = client.subscribe(() => tick++);
+    client.onPeerEvent = (kind) => sounds[kind]();
+    sounds.join();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !document.fullscreenElement) focusId = null;
     };
@@ -81,6 +84,15 @@
   // svelte-ignore state_referenced_locally
   const s = client.settings;
   const limits = `${s.minHeight}p–${s.maxHeight}p · ${s.minFps}–${s.maxFps}fps`;
+
+  // indicador "ao vivo" na bandeja e na barra de tarefas
+  $effect(() => {
+    invoke("set_live", { live: snap.sharing }).catch(() => {});
+  });
+  onDestroy(() => {
+    client.onPeerEvent = null;
+    invoke("set_live", { live: false }).catch(() => {});
+  });
 
   const focused = $derived(snap.tiles.find((x) => x.id === focusId) ?? null);
   const others = $derived(snap.tiles.filter((x) => x.id !== focused?.id));

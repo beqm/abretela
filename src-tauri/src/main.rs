@@ -2,13 +2,15 @@
 
 mod capture;
 mod server;
+mod tray;
 mod tunnel;
 #[cfg(test)]
 mod e2e_test;
 
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{Manager, RunEvent, State};
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 
 struct Room {
     stop: tokio::sync::watch::Sender<bool>,
@@ -102,19 +104,55 @@ async fn stop_capture(token: Option<String>) {
     let _ = tokio::task::spawn_blocking(move || capture::stop_if(token.as_deref())).await;
 }
 
+#[tauri::command]
+fn set_close_to_tray(app: AppHandle, enabled: bool) {
+    app.state::<tray::Tray>().close_to_tray.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_live(app: AppHandle, live: bool) {
+    tray::set_live(&app, live);
+}
+
+#[tauri::command]
+fn set_tray_texts(app: AppHandle, open: String, quit: String, tooltip: String, live_tooltip: String) {
+    tray::set_texts(&app, &open, &quit, &tooltip, &live_tooltip);
+}
+
 fn main() {
     tauri::Builder::default()
+        // abrir o app de novo só traz a janela que já está aberta (ou na bandeja)
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
-        .setup(|_| {
+        .setup(|app| {
             tauri::async_runtime::spawn(async {
                 if let Err(e) = capture::serve().await {
                     eprintln!("servidor de captura falhou: {e}");
                 }
             });
+            tray::setup(app.handle())?;
+            // iniciado junto com o Windows: começa escondido na bandeja
+            if std::env::args().any(|a| a == "--minimized") {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.state::<tray::Tray>().close_to_tray.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             create_room,
@@ -122,7 +160,10 @@ fn main() {
             list_sources,
             thumbnail,
             start_capture,
-            stop_capture
+            stop_capture,
+            set_close_to_tray,
+            set_live,
+            set_tray_texts
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o app")
