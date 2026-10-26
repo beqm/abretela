@@ -129,7 +129,7 @@ export class RoomClient {
         await sleep(2000);
       }
     }
-    throw new Error("Não foi possível conectar à sala. Confira o código.");
+    throw new Error("connect-failed");
   }
 
   private open(): Promise<void> {

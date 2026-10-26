@@ -97,7 +97,7 @@ pub fn list_sources() -> Vec<Source> {
             out.push(Source {
                 id: format!("m:{}", m.as_raw_hmonitor() as usize),
                 kind: "screen",
-                title: format!("Tela {}", i + 1),
+                title: (i + 1).to_string(), // o frontend traduz ("Tela 1")
                 app: size,
             });
         }

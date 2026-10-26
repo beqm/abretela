@@ -2,10 +2,11 @@
   import { onMount } from "svelte";
   import { check } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
+  import { t } from "./lib/prefs.svelte";
 
   let { ondone }: { ondone: () => void } = $props();
 
-  let status = $state("Procurando atualizações...");
+  let status = $state(t("checkingUpdates"));
   let progress = $state<number | null>(null);
   let failed = $state<string | null>(null);
 
@@ -25,7 +26,7 @@
     }
     if (!update) return ondone();
 
-    status = `Baixando a versão ${update.version}...`;
+    status = t("downloadingVersion", { v: update.version });
     try {
       let total = 0;
       let received = 0;
@@ -35,9 +36,9 @@
           received += ev.data.chunkLength;
           if (total) progress = Math.min(100, Math.round((received / total) * 100));
         }
-        if (ev.event === "Finished") status = "Instalando...";
+        if (ev.event === "Finished") status = t("installing");
       });
-      status = "Reiniciando...";
+      status = t("restarting");
       await relaunch();
     } catch (e) {
       failed = String(e);
@@ -46,13 +47,13 @@
 </script>
 
 <div class="updater">
-  <span class="logo big-logo"></span>
+  <img class="mascot bob" src="/logo.svg" alt="" />
   {#if failed}
-    <p>Não foi possível atualizar.</p>
+    <p>{t("updateFailed")}</p>
     <p class="hint">{failed}</p>
-    <button class="btn primary" onclick={ondone}>Continuar mesmo assim</button>
+    <button class="btn primary" onclick={ondone}>{t("continueAnyway")}</button>
   {:else}
-    <p>{status}</p>
+    <p class="updater-status">{status}</p>
     {#if progress !== null}
       <div class="progress"><div style:width="{progress}%"></div></div>
     {:else}

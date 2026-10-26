@@ -4,9 +4,13 @@
   import { makeInvite, type RemoteView, type RoomClient } from "./lib/room";
   import { startNativeCapture, type Source } from "./lib/capture";
   import type { Quality } from "./lib/quality";
+  import { t } from "./lib/prefs.svelte";
   import SourcePicker from "./SourcePicker.svelte";
+  import SettingsModal from "./SettingsModal.svelte";
   import Tile from "./Tile.svelte";
   import Credits from "./Credits.svelte";
+  import Icon from "./Icon.svelte";
+  import Avatar from "./Avatar.svelte";
 
   type Props = {
     client: RoomClient;
@@ -35,19 +39,21 @@
   let copied = $state(false);
   let showPassword = $state(false);
   let picking = $state(false);
+  let showSettings = $state(false);
   let focusId = $state<string | null>(null);
 
-  type Snapshot = {
-    status: RoomClient["status"];
+  type PeerView = {
+    id: string;
+    name: string;
     sharing: boolean;
-    peers: { id: string; name: string; sharing: boolean; label?: string | null; isSelf: boolean; watching: boolean }[];
-    tiles: { id: string; name: string; label?: string | null; isSelf: boolean; view: RemoteView }[];
-    liveOthers: number;
+    label?: string | null;
+    isSelf: boolean;
+    watching: boolean;
   };
 
-  const snap: Snapshot = $derived.by(() => {
+  const snap = $derived.by(() => {
     tick;
-    const peers = [...client.peers.values()]
+    const peers: PeerView[] = [...client.peers.values()]
       .map((p) => ({ ...p, isSelf: p.id === client.selfId, watching: client.watching.has(p.id) }))
       .sort((a, b) => (a.isSelf ? -1 : b.isSelf ? 1 : a.name.localeCompare(b.name)));
     const tiles = [...client.watching]
@@ -60,13 +66,15 @@
         const p = client.peers.get(id)!;
         return view && { id, name: p.name, label: p.label, isSelf, view };
       })
-      .filter((t) => !!t);
+      .filter((x) => !!x);
     return {
       status: client.status,
       sharing: !!client.localStream,
+      me: peers.find((p) => p.isSelf),
       peers,
+      channels: peers.filter((p) => p.sharing && !p.isSelf),
       tiles,
-      liveOthers: peers.filter((p) => p.sharing && !p.isSelf && !p.watching).length,
+      unwatched: peers.filter((p) => p.sharing && !p.isSelf && !p.watching).length,
     };
   });
 
@@ -74,8 +82,8 @@
   const s = client.settings;
   const limits = `${s.minHeight}p–${s.maxHeight}p · ${s.minFps}–${s.maxFps}fps`;
 
-  const focused = $derived(snap.tiles.find((t) => t.id === focusId) ?? null);
-  const others = $derived(snap.tiles.filter((t) => t.id !== focused?.id));
+  const focused = $derived(snap.tiles.find((x) => x.id === focusId) ?? null);
+  const others = $derived(snap.tiles.filter((x) => x.id !== focused?.id));
   const cols = $derived(Math.ceil(Math.sqrt(snap.tiles.length)));
 
   function audioFor(id: string) {
@@ -86,7 +94,7 @@
 
   function leave() {
     if (isHost && snap.status === "connected" && client.peers.size > 1) {
-      if (!confirm("Você é o anfitrião. Sair vai encerrar a sala para todos. Continuar?")) return;
+      if (!confirm(t("hostLeaveConfirm"))) return;
     }
     client.leave();
     if (isHost) invoke("close_room");
@@ -96,22 +104,20 @@
   async function startShare(pick: { source: Source; quality: Quality; audio: boolean }) {
     notice = null;
     try {
-      const capture = await startNativeCapture(
-        pick.source.id,
-        pick.quality.height,
-        pick.quality.fps,
-        pick.audio,
-      );
-      const title = pick.source.kind === "screen" ? pick.source.title : pick.source.app || pick.source.title;
+      const capture = await startNativeCapture(pick.source.id, pick.quality.height, pick.quality.fps, pick.audio);
+      const title =
+        pick.source.kind === "screen"
+          ? t("screenN", { n: pick.source.title })
+          : pick.source.app || pick.source.title;
       client.startShare(capture, pick.quality, title);
     } catch (e) {
-      notice = `Não foi possível compartilhar: ${e}`;
+      notice = t("shareFailed", { e: String(e) });
     } finally {
       picking = false;
     }
   }
 
-  async function copyCode() {
+  async function copyInvite() {
     await navigator.clipboard.writeText(makeInvite(code, password));
     copied = true;
     setTimeout(() => (copied = false), 1500);
@@ -128,87 +134,107 @@
 </script>
 
 <div class="room">
-  <aside class="sidebar">
-    <div class="room-code">
-      <span class="label">Código da sala</span>
+  <header class="topbar">
+    <img class="topbar-logo" src="/logo.svg" alt="" />
+
+    <div class="room-pill">
+      <span class="pill-label">{t("room")}</span>
       <code title={code}>{code}</code>
-      <button class="btn small" onclick={copyCode} title="Copia código + senha num convite só">
-        {copied ? "Copiado!" : "Copiar convite"}
+      <span class="pill-sep"></span>
+      <Icon name="lock" size={14} />
+      <code class="pw">{showPassword ? password : "•".repeat(password.length)}</code>
+      <button
+        class="icon-btn small"
+        title={showPassword ? t("hidePassword") : t("showPassword")}
+        onclick={() => (showPassword = !showPassword)}
+      >
+        <Icon name={showPassword ? "eyeOff" : "eye"} size={16} />
       </button>
-      <span class="label">Senha</span>
-      <code class="password-code">{showPassword ? password : "•".repeat(password.length)}</code>
-      <button class="btn small" onclick={() => (showPassword = !showPassword)}>
-        {showPassword ? "Ocultar" : "Mostrar"}
-      </button>
-      <span class="hint">Qualidade da sala: {limits}</span>
-      {#if isHost}
-        <span class="hint">Você é o anfitrião: a sala fica aberta enquanto seu app estiver aberto.</span>
-      {/if}
     </div>
 
-    <div class="section-title">
-      <span>Na sala — {snap.peers.length}</span>
-      {#if snap.liveOthers > 0}
-        <button class="link-btn" onclick={() => client.watchAll()}>Assistir todos</button>
-      {/if}
-    </div>
-    <ul class="peers">
-      {#each snap.peers as p (p.id)}
-        <li class:active={p.watching}>
-          <span class="avatar">{p.name.slice(0, 1).toUpperCase()}</span>
-          <div class="peer-info">
-            <span class="peer-name">
-              {p.name}{#if p.isSelf}<span class="muted"> (você)</span>{/if}
-            </span>
-            {#if p.sharing && p.label}
-              <span class="peer-label" title={p.label}>{p.label}</span>
-            {/if}
-          </div>
-          {#if p.sharing}
-            <span class="live">AO VIVO</span>
-            <button
-              class="btn small"
-              class:primary={!p.watching}
-              onclick={() => toggleWatch(p.id, p.watching)}
-            >
-              {p.watching ? "Parar" : p.isSelf ? "Prévia" : "Assistir"}
-            </button>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+    <button class="btn small" class:mint={copied} title={t("copyInviteHint")} onclick={copyInvite}>
+      <Icon name={copied ? "check" : "copy"} size={16} />
+      {copied ? t("copied") : t("copyInvite")}
+    </button>
 
-    <div class="sidebar-footer">
-      {#if snap.sharing}
-        <button class="btn big danger" onclick={() => client.stopShare()}>Parar transmissão</button>
-      {:else}
-        <button
-          class="btn big primary"
-          disabled={snap.status !== "connected"}
-          onclick={() => (picking = true)}>Compartilhar tela</button
-        >
-      {/if}
-      <button class="btn" onclick={leave}>Sair da sala</button>
-      <Credits />
+    <div class="spacer"></div>
+
+    <div class="people" title={t("peopleInRoom", { n: snap.peers.length })}>
+      <div class="avatar-stack">
+        {#each snap.peers.slice(0, 5) as p (p.id)}
+          <Avatar name={p.name} size={30} />
+        {/each}
+      </div>
+      <span class="people-count">{snap.peers.length}</span>
     </div>
-  </aside>
+
+    <button class="icon-btn" title={t("settings")} onclick={() => (showSettings = true)}>
+      <Icon name="settings" size={20} />
+    </button>
+    <button class="btn small danger-soft" onclick={leave}>
+      <Icon name="logout" size={16} />
+      {t("leave")}
+    </button>
+  </header>
+
+  <section class="channels">
+    <!-- meu "canal" -->
+    {#if snap.sharing && snap.me}
+      <div class="channel mine live-on">
+        <Avatar name={snap.me.name} size={40} />
+        <div class="channel-info">
+          <span class="channel-name">{snap.me.name} <span class="muted">({t("you")})</span></span>
+          <span class="channel-label">{snap.me.label ?? ""}</span>
+        </div>
+        <div class="channel-actions">
+          <button class="btn small" class:on={snap.me.watching} onclick={() => toggleWatch(snap.me!.id, snap.me!.watching)}>
+            {snap.me.watching ? t("stopWatching") : t("preview")}
+          </button>
+          <button class="btn small danger" onclick={() => client.stopShare()}>{t("closeMyScreen")}</button>
+        </div>
+      </div>
+    {:else}
+      <button class="channel open-screen" disabled={snap.status !== "connected"} onclick={() => (picking = true)}>
+        <span class="open-icon"><Icon name="plus" size={24} /></span>
+        <div class="channel-info">
+          <span class="channel-name">{t("openMyScreen")}</span>
+          <span class="channel-label">{t("openMyScreenHint")}</span>
+        </div>
+      </button>
+    {/if}
+
+    {#each snap.channels as p (p.id)}
+      <div class="channel live-on" class:watching={p.watching}>
+        <Avatar name={p.name} size={40} />
+        <div class="channel-info">
+          <span class="channel-name">{p.name}</span>
+          <span class="channel-label" title={p.label ?? ""}>{p.label ?? ""}</span>
+        </div>
+        <button class="btn small" class:primary={!p.watching} onclick={() => toggleWatch(p.id, p.watching)}>
+          {p.watching ? t("stopWatching") : t("watch")}
+        </button>
+      </div>
+    {/each}
+
+    {#if snap.unwatched > 1}
+      <button class="btn small watch-all" onclick={() => client.watchAll()}>{t("watchAll")}</button>
+    {/if}
+  </section>
 
   <main class="stage">
     {#if notice}
       <div class="notice">
-        {notice}
-        <button class="icon-btn" onclick={() => (notice = null)}>✕</button>
+        <span>{notice}</span>
+        <button class="icon-btn small" onclick={() => (notice = null)}><Icon name="x" size={16} /></button>
       </div>
     {/if}
 
     {#if snap.tiles.length === 0}
       <div class="empty">
-        <div class="empty-icon">🖥️</div>
-        <h2>Nenhuma transmissão selecionada</h2>
-        <p class="muted">
-          Clique em <b>Assistir</b> em quem está <span class="live">AO VIVO</span> na lista ao lado.
-          Você pode assistir várias ao mesmo tempo e clicar em uma para focar nela.
-        </p>
+        <img class="empty-mascot" src="/logo.svg" alt="" />
+        <h2>{t("emptyTitle")}</h2>
+        <p class="muted">{t("emptyBody")}</p>
+        <p class="hint">{t("roomQuality", { limits })}{isHost ? ` · ${t("hostHint")}` : ""}</p>
       </div>
     {:else if focused}
       <div class="focus-layout">
@@ -225,22 +251,23 @@
             onretry={() => client.retry(focused.id)}
           />
           <button class="btn small back-to-grid" onclick={() => (focusId = null)}>
-            ▦ Ver todas
+            <Icon name="grid" size={16} />
+            {t("seeAll")}
           </button>
         </div>
         {#if others.length > 0}
           <div class="focus-strip">
-            {#each others as t (t.id)}
+            {#each others as x (x.id)}
               <Tile
-                name={t.name}
-                label={t.label}
-                view={t.view}
-                isSelf={t.isSelf}
+                name={x.name}
+                label={x.label}
+                view={x.view}
+                isSelf={x.isSelf}
                 compact
-                audio={audioFor(t.id)}
-                onselect={() => (focusId = t.id)}
-                onclose={() => toggleWatch(t.id, true)}
-                onretry={() => client.retry(t.id)}
+                audio={audioFor(x.id)}
+                onselect={() => (focusId = x.id)}
+                onclose={() => toggleWatch(x.id, true)}
+                onretry={() => client.retry(x.id)}
               />
             {/each}
           </div>
@@ -248,37 +275,43 @@
       </div>
     {:else}
       <div class="grid" style:grid-template-columns="repeat({cols}, 1fr)">
-        {#each snap.tiles as t (t.id)}
+        {#each snap.tiles as x (x.id)}
           <Tile
-            name={t.name}
-            label={t.label}
-            view={t.view}
-            isSelf={t.isSelf}
-            audio={audioFor(t.id)}
-            onselect={() => (focusId = t.id)}
-            onclose={() => toggleWatch(t.id, true)}
-            onretry={() => client.retry(t.id)}
+            name={x.name}
+            label={x.label}
+            view={x.view}
+            isSelf={x.isSelf}
+            audio={audioFor(x.id)}
+            onselect={() => (focusId = x.id)}
+            onclose={() => toggleWatch(x.id, true)}
+            onretry={() => client.retry(x.id)}
           />
         {/each}
       </div>
     {/if}
+
+    <div class="stage-credits"><Credits /></div>
   </main>
 
   {#if picking}
     <SourcePicker settings={client.settings} onpick={startShare} oncancel={() => (picking = false)} />
   {/if}
+  {#if showSettings}
+    <SettingsModal onclose={() => (showSettings = false)} />
+  {/if}
 
   {#if snap.status === "closed"}
     <div class="modal-backdrop">
-      <div class="card">
-        <h2>A sala foi encerrada</h2>
-        <p class="muted">O anfitrião saiu ou a conexão caiu.</p>
+      <div class="modal closed-modal">
+        <img class="empty-mascot sad" src="/logo.svg" alt="" />
+        <h2>{t("roomClosed")}</h2>
+        <p class="muted">{t("roomClosedBody")}</p>
         <button
           class="btn primary"
           onclick={() => {
             if (isHost) invoke("close_room");
             onexit();
-          }}>Voltar ao início</button
+          }}>{t("backHome")}</button
         >
       </div>
     </div>

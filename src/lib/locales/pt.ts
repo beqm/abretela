@@ -1,0 +1,110 @@
+export const pt = {
+  // geral
+  tagline: "Abra sua tela para os amigos: jogos, apps e o que mais quiser, com áudio.",
+  settings: "Configurações",
+  close: "Fechar",
+  cancel: "Cancelar",
+  live: "AO VIVO",
+  you: "você",
+
+  // configurações do app
+  language: "Idioma",
+  theme: "Tema",
+  themeSystem: "Sistema",
+  themeLight: "Claro",
+  themeDark: "Escuro",
+
+  // início
+  yourName: "Seu nome",
+  namePlaceholder: "Como os outros vão te ver",
+  createRoom: "Criar sala",
+  roomOptions: "Opções da sala",
+  roomPassword: "Senha da sala",
+  roomPasswordPlaceholder: "Vazio = senha aleatória",
+  allowedQuality: "Qualidade permitida",
+  minResolution: "Resolução mínima",
+  maxResolution: "Resolução máxima",
+  minFps: "FPS mínimo",
+  maxFps: "FPS máximo",
+  qualityHint:
+    "Quem transmitir escolhe a qualidade dentro desses limites. 1080p 60fps usa uns 7 Mbps de upload por pessoa assistindo.",
+  or: "ou",
+  invitePlaceholder: "Convite ou código da sala",
+  password: "Senha",
+  join: "Entrar",
+  creatingRoom: "Criando a sala e abrindo o túnel...",
+  connecting: "Conectando à sala...",
+  connectingAttempt: "Conectando à sala... (tentativa {n})",
+  invalidCode: "Código inválido.",
+  enterPassword: "Digite a senha da sala.",
+  wrongPassword: "Senha incorreta.",
+  connectFailed: "Não foi possível conectar à sala. Confira o código.",
+
+  // atualização
+  checkingUpdates: "Procurando atualizações...",
+  downloadingVersion: "Baixando a versão {v}...",
+  installing: "Instalando...",
+  restarting: "Reiniciando...",
+  updateFailed: "Não foi possível atualizar.",
+  continueAnyway: "Continuar mesmo assim",
+
+  // créditos
+  developedBy: "desenvolvido por",
+
+  // sala
+  room: "Sala",
+  copyInvite: "Copiar convite",
+  copyInviteHint: "Copia código + senha num convite só",
+  copied: "Copiado!",
+  showPassword: "Mostrar senha",
+  hidePassword: "Ocultar senha",
+  roomQuality: "Qualidade da sala: {limits}",
+  hostHint: "Você é o anfitrião: a sala fica aberta enquanto seu app estiver aberto.",
+  peopleInRoom: "{n} na sala",
+  channels: "Canais",
+  watchAll: "Assistir todos",
+  openMyScreen: "Abrir minha tela",
+  openMyScreenHint: "Compartilhe um jogo, app ou a tela inteira",
+  closeMyScreen: "Fechar minha tela",
+  watch: "Assistir",
+  stopWatching: "Parar",
+  preview: "Prévia",
+  leave: "Sair",
+  hostLeaveConfirm: "Você é o anfitrião. Sair vai encerrar a sala para todos. Continuar?",
+  emptyTitle: "Nada passando ainda",
+  emptyBody:
+    "Quando alguém abrir a tela, o canal aparece lá em cima. Clique em Assistir — dá para ver vários ao mesmo tempo e focar em um.",
+  seeAll: "Ver todos",
+  roomClosed: "A sala foi encerrada",
+  roomClosedBody: "O anfitrião saiu ou a conexão caiu.",
+  backHome: "Voltar ao início",
+  shareFailed: "Não foi possível compartilhar: {e}",
+
+  // tile
+  connectingStream: "Conectando...",
+  connectionFailed: "Falha na conexão.",
+  connectionFailedWith: "Falha na conexão com {name}.",
+  tryAgain: "Tentar de novo",
+  previewSuffix: "(prévia)",
+  mute: "Silenciar",
+  unmute: "Ativar som",
+  fullscreen: "Tela cheia",
+
+  // seletor
+  shareTitle: "O que você quer abrir?",
+  apps: "Aplicativos",
+  screens: "Telas",
+  screenN: "Tela {n}",
+  refresh: "Atualizar",
+  searching: "Procurando...",
+  nothingFound: "Nada encontrado.",
+  noPreview: "Sem prévia",
+  resolution: "Resolução",
+  fps: "FPS",
+  appAudio: "Áudio do aplicativo",
+  systemAudio: "Áudio do sistema",
+  startStreaming: "Abrir tela",
+  starting: "Abrindo...",
+};
+
+export type Messages = typeof pt;

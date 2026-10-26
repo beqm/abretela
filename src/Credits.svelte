@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { t } from "./lib/prefs.svelte";
 
   const REPO = "https://github.com/beqm/abretela";
   const AUTHOR = "https://github.com/beqm";
@@ -20,7 +21,7 @@
 <div class="credits">
   <span>AbreTela{version ? ` v${version}` : ""}</span>
   <span>·</span>
-  <span>desenvolvido por <a href={AUTHOR} onclick={open(AUTHOR)}>@beqm</a></span>
+  <span>{t("developedBy")} <a href={AUTHOR} onclick={open(AUTHOR)}>@beqm</a></span>
   <span>·</span>
   <a href={REPO} onclick={open(REPO)}>GitHub</a>
 </div>

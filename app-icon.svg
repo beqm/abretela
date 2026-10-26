@@ -1,6 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="224" fill="#5865f2"/>
-  <rect x="192" y="256" width="640" height="420" rx="48" fill="none" stroke="#fff" stroke-width="56"/>
-  <path d="M384 800h256M512 676v124" stroke="#fff" stroke-width="56" stroke-linecap="round"/>
-  <path d="M452 370l150 96-150 96z" fill="#fff"/>
+  <!-- antenas -->
+  <path d="M512 300 L392 150 M512 300 L640 136" stroke="#2B2140" stroke-width="34" stroke-linecap="round" fill="none"/>
+  <circle cx="388" cy="140" r="40" fill="#22C5B0"/>
+  <circle cx="646" cy="124" r="40" fill="#FFC23C"/>
+  <!-- pés -->
+  <rect x="300" y="820" width="120" height="84" rx="38" fill="#2B2140"/>
+  <rect x="604" y="820" width="120" height="84" rx="38" fill="#2B2140"/>
+  <!-- corpo (com "lábio" 3D embaixo) -->
+  <rect x="140" y="300" width="744" height="560" rx="160" fill="#D9581A"/>
+  <rect x="140" y="270" width="744" height="550" rx="160" fill="#FF7A2F"/>
+  <ellipse cx="512" cy="282" rx="70" ry="30" fill="#2B2140"/>
+  <!-- tela -->
+  <rect x="224" y="350" width="576" height="390" rx="112" fill="#FFF4E6"/>
+  <!-- rosto -->
+  <ellipse cx="404" cy="532" rx="46" ry="62" fill="#2B2140"/>
+  <ellipse cx="620" cy="532" rx="46" ry="62" fill="#2B2140"/>
+  <circle cx="420" cy="506" r="17" fill="#fff"/>
+  <circle cx="636" cy="506" r="17" fill="#fff"/>
+  <ellipse cx="322" cy="628" rx="42" ry="24" fill="#FF9AA8"/>
+  <ellipse cx="702" cy="628" rx="42" ry="24" fill="#FF9AA8"/>
+  <path d="M470 618 Q512 662 554 618" stroke="#2B2140" stroke-width="24" stroke-linecap="round" fill="none"/>
 </svg>

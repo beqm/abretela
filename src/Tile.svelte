@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { RemoteView } from "./lib/room";
+  import { t } from "./lib/prefs.svelte";
+  import Icon from "./Icon.svelte";
 
   type Props = {
     name: string;
@@ -73,49 +75,34 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div
-  class="tile"
-  class:compact
-  class:focused
-  bind:this={tile}
-  onclick={onselect}
-  ondblclick={toggleFullscreen}
->
-  <video
-    use:srcObject={view.stream}
-    autoplay
-    playsinline
-    muted={isSelf || muted}
-    bind:volume
-  ></video>
+<div class="tile" class:compact class:focused bind:this={tile} onclick={onselect} ondblclick={toggleFullscreen}>
+  <video use:srcObject={view.stream} autoplay playsinline muted={isSelf || muted} bind:volume></video>
 
   {#if view.state !== "connected" && !isSelf}
     <div class="tile-overlay">
       {#if view.state === "connecting"}
         <span class="spinner"></span>
-        {#if !compact}Conectando...{/if}
+        {#if !compact}{t("connectingStream")}{/if}
       {:else}
-        <span>Falha na conexão{compact ? "" : ` com ${name}`}.</span>
-        <button class="btn small" onclick={stop(onretry)}>Tentar de novo</button>
+        <span>{compact ? t("connectionFailed") : t("connectionFailedWith", { name })}</span>
+        <button class="btn small" onclick={stop(onretry)}>{t("tryAgain")}</button>
       {/if}
     </div>
   {/if}
 
   <div class="tile-tag">
-    <span class="live">AO VIVO</span>
-    <span class="tile-name">{name}{isSelf ? " (prévia)" : ""}</span>
+    <span class="live-dot"></span>
+    <span class="tile-name">{name}{isSelf ? ` ${t("previewSuffix")}` : ""}</span>
   </div>
 
   {#if !compact}
     <div class="tile-bar">
-      <span class="tile-label muted">{label ?? ""}</span>
+      <span class="tile-label">{label ?? ""}</span>
       <div class="tile-controls">
         {#if !isSelf}
-          <button
-            class="icon-btn"
-            title={muted ? "Ativar som" : "Silenciar"}
-            onclick={stop(() => (muted = !muted))}>{muted || volume === 0 ? "🔇" : "🔊"}</button
-          >
+          <button class="icon-btn" title={muted ? t("unmute") : t("mute")} onclick={stop(() => (muted = !muted))}>
+            <Icon name={muted || volume === 0 ? "mute" : "volume"} />
+          </button>
           <input
             type="range"
             min="0"
@@ -129,8 +116,8 @@
             }}
           />
         {/if}
-        <button class="icon-btn" title="Tela cheia" onclick={toggleFullscreen}>⛶</button>
-        <button class="icon-btn" title="Parar de assistir" onclick={stop(onclose)}>✕</button>
+        <button class="icon-btn" title={t("fullscreen")} onclick={toggleFullscreen}><Icon name="maximize" /></button>
+        <button class="icon-btn" title={t("stopWatching")} onclick={stop(onclose)}><Icon name="x" /></button>
       </div>
     </div>
   {/if}
