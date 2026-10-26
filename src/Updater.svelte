@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { check } from "@tauri-apps/plugin-updater";
-  import { relaunch } from "@tauri-apps/plugin-process";
+  import { findUpdate, installUpdate } from "./lib/update";
   import { t } from "./lib/prefs.svelte";
 
   let { ondone }: { ondone: () => void } = $props();
@@ -10,15 +9,12 @@
   let progress = $state<number | null>(null);
   let failed = $state<string | null>(null);
 
-  const withTimeout = <T,>(p: Promise<T>, ms: number) =>
-    Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-
   onMount(async () => {
     if (import.meta.env.DEV) return ondone();
 
     let update;
     try {
-      update = await withTimeout(check(), 8000);
+      update = await findUpdate();
     } catch (e) {
       // sem internet, GitHub fora do ar etc.: abre o app normalmente
       console.warn("[updater]", e);
@@ -26,20 +22,13 @@
     }
     if (!update) return ondone();
 
-    status = t("downloadingVersion", { v: update.version });
+    const version = update.version;
+    status = t("downloadingVersion", { v: version });
     try {
-      let total = 0;
-      let received = 0;
-      await update.downloadAndInstall((ev) => {
-        if (ev.event === "Started") total = ev.data.contentLength ?? 0;
-        if (ev.event === "Progress") {
-          received += ev.data.chunkLength;
-          if (total) progress = Math.min(100, Math.round((received / total) * 100));
-        }
-        if (ev.event === "Finished") status = t("installing");
+      await installUpdate(update, (phase, pct) => {
+        progress = pct;
+        status = phase === "install" ? t("installing") : t("downloadingVersion", { v: version });
       });
-      status = t("restarting");
-      await relaunch();
     } catch (e) {
       failed = String(e);
     }

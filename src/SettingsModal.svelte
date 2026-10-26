@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+  import { getVersion } from "@tauri-apps/api/app";
+  import { findUpdate, installUpdate, type Update } from "./lib/update";
   import { LANGUAGES, prefs, t, type Theme } from "./lib/prefs.svelte";
   import Icon from "./Icon.svelte";
   import Segmented from "./Segmented.svelte";
@@ -14,10 +16,41 @@
     { value: "dark", label: t("themeDark") },
   ]);
 
+  // procurar atualizações
+  type UpdateState =
+    | { kind: "idle" }
+    | { kind: "checking" }
+    | { kind: "latest" }
+    | { kind: "available"; update: Update }
+    | { kind: "installing"; phase: "download" | "install"; progress: number | null }
+    | { kind: "error"; message: string };
+  let version = $state("");
+  let upd = $state<UpdateState>({ kind: "idle" });
+
+  async function checkUpdates() {
+    upd = { kind: "checking" };
+    try {
+      const update = await findUpdate(15000);
+      upd = update ? { kind: "available", update } : { kind: "latest" };
+    } catch (e) {
+      upd = { kind: "error", message: String(e) };
+    }
+  }
+
+  async function updateNow(update: Update) {
+    upd = { kind: "installing", phase: "download", progress: null };
+    try {
+      await installUpdate(update, (phase, progress) => (upd = { kind: "installing", phase, progress }));
+    } catch (e) {
+      upd = { kind: "error", message: String(e) };
+    }
+  }
+
   let autostart = $state(false);
   let autostartReady = $state(false);
 
   onMount(() => {
+    getVersion().then((v) => (version = v));
     isEnabled()
       .then((v) => (autostart = v))
       .catch(() => {})
@@ -84,6 +117,45 @@
           checked={prefs.sounds}
           onchange={(v) => (prefs.sounds = v)}
         />
+      </div>
+    </section>
+
+    <section>
+      <div class="section-label"><Icon name="refresh" size={16} /> {t("about")}</div>
+      <div class="about">
+        <img class="about-logo" src="/logo.svg" alt="" />
+        <div class="about-info">
+          <span class="about-name">AbreTela {version ? `v${version}` : ""}</span>
+          <span class="hint">
+            {#if upd.kind === "checking"}
+              {t("checkingUpdates")}
+            {:else if upd.kind === "latest"}
+              {t("upToDate")}
+            {:else if upd.kind === "available"}
+              {t("updateAvailable", { v: upd.update.version })}
+            {:else if upd.kind === "installing"}
+              {upd.phase === "install" ? t("installing") : t("downloadingUpdate")}
+            {:else if upd.kind === "error"}
+              <span class="error-text" title={upd.message}>{t("updateCheckFailed")}</span>
+            {/if}
+          </span>
+          {#if upd.kind === "installing" && upd.progress !== null}
+            <div class="progress small"><div style:width="{upd.progress}%"></div></div>
+          {/if}
+        </div>
+        {#if upd.kind === "available"}
+          {@const update = upd.update}
+          <button class="btn small primary" onclick={() => updateNow(update)}>{t("updateNow")}</button>
+        {:else}
+          <button
+            class="btn small"
+            disabled={upd.kind === "checking" || upd.kind === "installing"}
+            onclick={checkUpdates}
+          >
+            {#if upd.kind === "checking" || upd.kind === "installing"}<span class="spinner small"></span>{/if}
+            {t("checkForUpdates")}
+          </button>
+        {/if}
       </div>
     </section>
   </div>

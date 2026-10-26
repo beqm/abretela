@@ -55,6 +55,13 @@ export const ko: Messages = {
   restarting: "다시 시작하는 중...",
   updateFailed: "업데이트하지 못했습니다.",
   continueAnyway: "그래도 계속",
+  about: "정보",
+  checkForUpdates: "업데이트 확인",
+  upToDate: "최신 버전을 사용 중입니다.",
+  updateAvailable: "{v} 버전을 사용할 수 있습니다!",
+  updateNow: "지금 업데이트",
+  updateCheckFailed: "업데이트를 확인할 수 없습니다.",
+  downloadingUpdate: "업데이트 다운로드 중...",
 
   developedBy: "개발",
 

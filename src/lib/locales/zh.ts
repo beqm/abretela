@@ -54,6 +54,13 @@ export const zh: Messages = {
   restarting: "正在重启...",
   updateFailed: "更新失败。",
   continueAnyway: "仍然继续",
+  about: "关于",
+  checkForUpdates: "检查更新",
+  upToDate: "已经是最新版本。",
+  updateAvailable: "版本 {v} 可用！",
+  updateNow: "立即更新",
+  updateCheckFailed: "无法检查更新。",
+  downloadingUpdate: "正在下载更新...",
 
   developedBy: "开发者",
 

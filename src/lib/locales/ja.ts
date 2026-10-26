@@ -55,6 +55,13 @@ export const ja: Messages = {
   restarting: "再起動しています...",
   updateFailed: "アップデートできませんでした。",
   continueAnyway: "このまま続ける",
+  about: "このアプリについて",
+  checkForUpdates: "アップデートを確認",
+  upToDate: "最新バージョンです。",
+  updateAvailable: "バージョン {v} があります！",
+  updateNow: "今すぐ更新",
+  updateCheckFailed: "アップデートを確認できませんでした。",
+  downloadingUpdate: "アップデートをダウンロードしています...",
 
   developedBy: "開発:",
 

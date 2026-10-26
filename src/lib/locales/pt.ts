@@ -57,6 +57,13 @@ export const pt = {
   restarting: "Reiniciando...",
   updateFailed: "Não foi possível atualizar.",
   continueAnyway: "Continuar mesmo assim",
+  about: "Sobre",
+  checkForUpdates: "Procurar atualizações",
+  upToDate: "Você está na versão mais recente.",
+  updateAvailable: "Versão {v} disponível!",
+  updateNow: "Atualizar agora",
+  updateCheckFailed: "Não foi possível procurar atualizações.",
+  downloadingUpdate: "Baixando a atualização...",
 
   // créditos
   developedBy: "desenvolvido por",

@@ -55,6 +55,13 @@ export const en: Messages = {
   restarting: "Restarting...",
   updateFailed: "Could not update.",
   continueAnyway: "Continue anyway",
+  about: "About",
+  checkForUpdates: "Check for updates",
+  upToDate: "You're on the latest version.",
+  updateAvailable: "Version {v} is available!",
+  updateNow: "Update now",
+  updateCheckFailed: "Could not check for updates.",
+  downloadingUpdate: "Downloading the update...",
 
   developedBy: "made by",
 

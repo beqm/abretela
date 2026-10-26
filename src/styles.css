@@ -1353,3 +1353,47 @@ p {
 .room-body .stage {
   padding-top: 12px;
 }
+
+/* configurações: sobre / atualizações */
+
+.about {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+
+.about-logo {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.about-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-name {
+  font-weight: 900;
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.spinner.small {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.progress.small {
+  width: 100%;
+  height: 10px;
+}

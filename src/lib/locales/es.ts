@@ -55,6 +55,13 @@ export const es: Messages = {
   restarting: "Reiniciando...",
   updateFailed: "No se pudo actualizar.",
   continueAnyway: "Continuar de todos modos",
+  about: "Acerca de",
+  checkForUpdates: "Buscar actualizaciones",
+  upToDate: "Tienes la versión más reciente.",
+  updateAvailable: "¡Versión {v} disponible!",
+  updateNow: "Actualizar ahora",
+  updateCheckFailed: "No se pudieron buscar actualizaciones.",
+  downloadingUpdate: "Descargando la actualización...",
 
   developedBy: "desarrollado por",
 
