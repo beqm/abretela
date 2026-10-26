@@ -71,6 +71,8 @@ export const pt = {
   roomQuality: "Qualidade da sala: {limits}",
   hostHint: "Você é o anfitrião: a sala fica aberta enquanto seu app estiver aberto.",
   peopleInRoom: "{n} na sala",
+  collapseSidebar: "Recolher barra lateral",
+  expandSidebar: "Expandir barra lateral",
   channels: "Canais",
   watchAll: "Assistir todos",
   openMyScreen: "Abrir minha tela",

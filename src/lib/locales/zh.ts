@@ -66,6 +66,8 @@ export const zh: Messages = {
   roomQuality: "房间画质：{limits}",
   hostHint: "你是房主：只要你的应用开着，房间就一直开放。",
   peopleInRoom: "房间里有 {n} 人",
+  collapseSidebar: "收起侧边栏",
+  expandSidebar: "展开侧边栏",
   channels: "频道",
   watchAll: "全部观看",
   openMyScreen: "打开我的屏幕",

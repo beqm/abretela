@@ -67,6 +67,8 @@ export const ja: Messages = {
   roomQuality: "ルームの画質：{limits}",
   hostHint: "あなたはホストです。アプリを開いている間、ルームは開いたままです。",
   peopleInRoom: "{n}人が参加中",
+  collapseSidebar: "サイドバーを折りたたむ",
+  expandSidebar: "サイドバーを展開",
   channels: "チャンネル",
   watchAll: "すべて見る",
   openMyScreen: "自分の画面をひらく",

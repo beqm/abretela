@@ -67,6 +67,8 @@ export const en: Messages = {
   roomQuality: "Room quality: {limits}",
   hostHint: "You are the host: the room stays open while your app is open.",
   peopleInRoom: "{n} in the room",
+  collapseSidebar: "Collapse sidebar",
+  expandSidebar: "Expand sidebar",
   channels: "Channels",
   watchAll: "Watch all",
   openMyScreen: "Open my screen",

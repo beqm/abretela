@@ -45,6 +45,15 @@
   let showSettings = $state(false);
   let focusId = $state<string | null>(null);
 
+  const COLLAPSED_KEY = "abretela.sidebarCollapsed";
+  let collapsed = $state(localStorage.getItem(COLLAPSED_KEY) === "1");
+  function toggleCollapsed() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {}
+  }
+
   type PeerView = {
     id: string;
     name: string;
@@ -73,9 +82,7 @@
     return {
       status: client.status,
       sharing: !!client.localStream,
-      me: peers.find((p) => p.isSelf),
       peers,
-      channels: peers.filter((p) => p.sharing && !p.isSelf),
       tiles,
       unwatched: peers.filter((p) => p.sharing && !p.isSelf && !p.watching).length,
     };
@@ -171,15 +178,6 @@
 
     <div class="spacer"></div>
 
-    <div class="people" title={t("peopleInRoom", { n: snap.peers.length })}>
-      <div class="avatar-stack">
-        {#each snap.peers.slice(0, 5) as p (p.id)}
-          <Avatar name={p.name} size={30} />
-        {/each}
-      </div>
-      <span class="people-count">{snap.peers.length}</span>
-    </div>
-
     <button class="icon-btn" title={t("settings")} onclick={() => (showSettings = true)}>
       <Icon name="settings" size={20} />
     </button>
@@ -189,49 +187,92 @@
     </button>
   </header>
 
-  <section class="channels">
-    <!-- meu "canal" -->
-    {#if snap.sharing && snap.me}
-      <div class="channel mine live-on">
-        <Avatar name={snap.me.name} size={40} />
-        <div class="channel-info">
-          <span class="channel-name">{snap.me.name} <span class="muted">({t("you")})</span></span>
-          <span class="channel-label">{snap.me.label ?? ""}</span>
-        </div>
-        <div class="channel-actions">
-          <button class="btn small" class:on={snap.me.watching} onclick={() => toggleWatch(snap.me!.id, snap.me!.watching)}>
-            {snap.me.watching ? t("stopWatching") : t("preview")}
-          </button>
-          <button class="btn small danger" onclick={() => client.stopShare()}>{t("closeMyScreen")}</button>
-        </div>
-      </div>
-    {:else}
-      <button class="channel open-screen" disabled={snap.status !== "connected"} onclick={() => (picking = true)}>
-        <span class="open-icon"><Icon name="plus" size={24} /></span>
-        <div class="channel-info">
-          <span class="channel-name">{t("openMyScreen")}</span>
-          <span class="channel-label">{t("openMyScreenHint")}</span>
-        </div>
+  <div class="room-body">
+  <aside class="sidebar" class:collapsed>
+    <div class="sidebar-head">
+      {#if !collapsed}
+        <span class="sidebar-title">{t("peopleInRoom", { n: snap.peers.length })}</span>
+        {#if snap.unwatched > 1}
+          <button class="link-btn" onclick={() => client.watchAll()}>{t("watchAll")}</button>
+        {/if}
+      {/if}
+      <button
+        class="icon-btn small"
+        title={collapsed ? t("expandSidebar") : t("collapseSidebar")}
+        onclick={toggleCollapsed}
+      >
+        <Icon name={collapsed ? "chevronsRight" : "chevronsLeft"} size={18} />
       </button>
-    {/if}
+    </div>
 
-    {#each snap.channels as p (p.id)}
-      <div class="channel live-on" class:watching={p.watching}>
-        <Avatar name={p.name} size={40} />
-        <div class="channel-info">
-          <span class="channel-name">{p.name}</span>
-          <span class="channel-label" title={p.label ?? ""}>{p.label ?? ""}</span>
-        </div>
-        <button class="btn small" class:primary={!p.watching} onclick={() => toggleWatch(p.id, p.watching)}>
-          {p.watching ? t("stopWatching") : t("watch")}
+    <ul class="peer-list">
+      {#each snap.peers as p (p.id)}
+        <li class:watching={p.watching} class:live={p.sharing}>
+          {#if collapsed}
+            <button
+              class="peer-avatar-btn"
+              disabled={!p.sharing}
+              title={p.sharing ? `${p.name} · ${p.label ?? ""}` : p.name}
+              onclick={() => toggleWatch(p.id, p.watching)}
+            >
+              <Avatar name={p.name} size={36} />
+              {#if p.sharing}<span class="avatar-live"></span>{/if}
+            </button>
+          {:else}
+            <span class="peer-avatar">
+              <Avatar name={p.name} size={34} />
+              {#if p.sharing}<span class="avatar-live"></span>{/if}
+            </span>
+            <div class="peer-info">
+              <span class="peer-name">
+                {p.name}{#if p.isSelf}{" "}<span class="muted">({t("you")})</span>{/if}
+              </span>
+              {#if p.sharing && p.label}
+                <span class="peer-label" title={p.label}>{p.label}</span>
+              {/if}
+            </div>
+            {#if p.sharing}
+              <button
+                class="btn small"
+                class:primary={!p.watching && !p.isSelf}
+                class:on={p.watching}
+                onclick={() => toggleWatch(p.id, p.watching)}
+              >
+                {p.watching ? t("stopWatching") : p.isSelf ? t("preview") : t("watch")}
+              </button>
+            {/if}
+          {/if}
+        </li>
+      {/each}
+    </ul>
+
+    <div class="sidebar-foot">
+      {#if snap.sharing}
+        <button
+          class="btn danger"
+          class:big={!collapsed}
+          class:square={collapsed}
+          title={t("closeMyScreen")}
+          onclick={() => client.stopShare()}
+        >
+          <Icon name="x" size={20} />
+          {#if !collapsed}{t("closeMyScreen")}{/if}
         </button>
-      </div>
-    {/each}
-
-    {#if snap.unwatched > 1}
-      <button class="btn small watch-all" onclick={() => client.watchAll()}>{t("watchAll")}</button>
-    {/if}
-  </section>
+      {:else}
+        <button
+          class="btn primary"
+          class:big={!collapsed}
+          class:square={collapsed}
+          title={t("openMyScreen")}
+          disabled={snap.status !== "connected"}
+          onclick={() => (picking = true)}
+        >
+          <Icon name="plus" size={20} />
+          {#if !collapsed}{t("openMyScreen")}{/if}
+        </button>
+      {/if}
+    </div>
+  </aside>
 
   <main class="stage">
     {#if notice}
@@ -304,6 +345,7 @@
 
     <div class="stage-credits"><Credits /></div>
   </main>
+  </div>
 
   {#if picking}
     <SourcePicker settings={client.settings} onpick={startShare} oncancel={() => (picking = false)} />

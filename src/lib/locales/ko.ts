@@ -67,6 +67,8 @@ export const ko: Messages = {
   roomQuality: "방 화질: {limits}",
   hostHint: "당신이 방장입니다: 앱이 켜져 있는 동안 방이 유지됩니다.",
   peopleInRoom: "{n}명 참여 중",
+  collapseSidebar: "사이드바 접기",
+  expandSidebar: "사이드바 펼치기",
   channels: "채널",
   watchAll: "모두 보기",
   openMyScreen: "내 화면 열기",
