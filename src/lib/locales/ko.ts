@@ -85,7 +85,9 @@ export const ko: Messages = {
   stopWatching: "그만 보기",
   preview: "미리보기",
   leave: "나가기",
-  hostLeaveConfirm: "당신이 방장입니다. 나가면 모두에게 방이 닫힙니다. 계속할까요?",
+  hostLeaveTitle: "방을 끝낼까요?",
+  hostLeaveConfirm: "당신이 방장입니다. 나가면 방에 있는 모두에게 방이 종료됩니다.",
+  endRoom: "방 끝내기",
   emptyTitle: "아직 아무것도 없어요",
   emptyBody:
     "누군가 화면을 열면 위에 채널이 나타납니다. 보기를 누르세요 — 여러 개를 동시에 보거나 하나에 집중할 수 있어요.",

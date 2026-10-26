@@ -12,6 +12,7 @@
   import Credits from "./Credits.svelte";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import ConfirmModal from "./ConfirmModal.svelte";
 
   type Props = {
     client: RoomClient;
@@ -111,10 +112,19 @@
     return a;
   }
 
+  let confirmingLeave = $state(false);
+
   function leave() {
+    // o anfitrião encerra a sala para todos: pede confirmação se tiver mais gente
     if (isHost && snap.status === "connected" && client.peers.size > 1) {
-      if (!confirm(t("hostLeaveConfirm"))) return;
+      confirmingLeave = true;
+      return;
     }
+    doLeave();
+  }
+
+  function doLeave() {
+    confirmingLeave = false;
     client.leave();
     if (isHost) invoke("close_room");
     onexit();
@@ -349,6 +359,17 @@
 
   {#if picking}
     <SourcePicker settings={client.settings} onpick={startShare} oncancel={() => (picking = false)} />
+  {/if}
+  {#if confirmingLeave}
+    <ConfirmModal
+      title={t("hostLeaveTitle")}
+      message={t("hostLeaveConfirm")}
+      confirmLabel={t("endRoom")}
+      cancelLabel={t("cancel")}
+      danger
+      onconfirm={doLeave}
+      oncancel={() => (confirmingLeave = false)}
+    />
   {/if}
   {#if showSettings}
     <SettingsModal onclose={() => (showSettings = false)} />

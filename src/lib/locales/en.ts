@@ -85,7 +85,9 @@ export const en: Messages = {
   stopWatching: "Stop",
   preview: "Preview",
   leave: "Leave",
-  hostLeaveConfirm: "You are the host. Leaving will close the room for everyone. Continue?",
+  hostLeaveTitle: "End the room?",
+  hostLeaveConfirm: "You're the host: if you leave, the room ends for everyone in it.",
+  endRoom: "End room",
   emptyTitle: "Nothing on yet",
   emptyBody:
     "When someone opens their screen, their channel shows up above. Click Watch — you can watch several at once and focus on one.",

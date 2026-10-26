@@ -85,7 +85,9 @@ export const ja: Messages = {
   stopWatching: "やめる",
   preview: "プレビュー",
   leave: "退出",
-  hostLeaveConfirm: "あなたはホストです。退出すると全員のルームが閉じます。続けますか？",
+  hostLeaveTitle: "ルームを終了しますか？",
+  hostLeaveConfirm: "あなたはホストです。退出すると、参加している全員のルームが終了します。",
+  endRoom: "ルームを終了",
   emptyTitle: "まだ何も映っていません",
   emptyBody:
     "だれかが画面をひらくと、上にチャンネルが表示されます。「見る」を押してね。複数を同時に見たり、ひとつに集中したりできます。",

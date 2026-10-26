@@ -89,7 +89,9 @@ export const pt = {
   stopWatching: "Parar",
   preview: "Prévia",
   leave: "Sair",
-  hostLeaveConfirm: "Você é o anfitrião. Sair vai encerrar a sala para todos. Continuar?",
+  hostLeaveTitle: "Encerrar a sala?",
+  hostLeaveConfirm: "Você é o anfitrião: se sair, a sala acaba para todo mundo que está nela.",
+  endRoom: "Encerrar sala",
   emptyTitle: "Nada passando ainda",
   emptyBody:
     "Quando alguém abrir a tela, o canal aparece lá em cima. Clique em Assistir — dá para ver vários ao mesmo tempo e focar em um.",

@@ -85,7 +85,9 @@ export const es: Messages = {
   stopWatching: "Parar",
   preview: "Vista previa",
   leave: "Salir",
-  hostLeaveConfirm: "Eres el anfitrión. Salir cerrará la sala para todos. ¿Continuar?",
+  hostLeaveTitle: "¿Cerrar la sala?",
+  hostLeaveConfirm: "Eres el anfitrión: si sales, la sala se cierra para todos los que están en ella.",
+  endRoom: "Cerrar sala",
   emptyTitle: "Todavía no hay nada",
   emptyBody:
     "Cuando alguien abra su pantalla, su canal aparecerá arriba. Haz clic en Ver: puedes ver varios a la vez y enfocarte en uno.",
