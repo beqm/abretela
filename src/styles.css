@@ -121,8 +121,11 @@ input:focus {
 
 .home {
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   padding: 16px;
   background: radial-gradient(circle at 30% 20%, #2c2f6b 0%, var(--bg) 60%);
 }
@@ -837,4 +840,62 @@ input:focus {
 
 .password-code {
   letter-spacing: 0.1em;
+}
+
+/* créditos */
+
+.credits {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.credits a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.credits a:hover {
+  color: var(--text);
+}
+
+/* tela de atualização */
+
+.updater {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 16px;
+}
+
+.updater p {
+  margin: 0;
+}
+
+.big-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+}
+
+.progress {
+  width: 240px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.progress div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
 }

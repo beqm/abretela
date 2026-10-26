@@ -104,6 +104,9 @@ async fn stop_capture(token: Option<String>) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
         .setup(|_| {
             tauri::async_runtime::spawn(async {

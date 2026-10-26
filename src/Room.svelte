@@ -6,6 +6,7 @@
   import type { Quality } from "./lib/quality";
   import SourcePicker from "./SourcePicker.svelte";
   import Tile from "./Tile.svelte";
+  import Credits from "./Credits.svelte";
 
   type Props = {
     client: RoomClient;
@@ -188,6 +189,7 @@
         >
       {/if}
       <button class="btn" onclick={leave}>Sair da sala</button>
+      <Credits />
     </div>
   </aside>
 

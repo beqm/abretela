@@ -8,10 +8,15 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "fetch-cloudflared": "node scripts/fetch-cloudflared.mjs"
+    "fetch-cloudflared": "node scripts/fetch-cloudflared.mjs",
+    "release:patch": "npm version patch -m \"v%s\" && git push --follow-tags",
+    "release:minor": "npm version minor -m \"v%s\" && git push --follow-tags"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.4"
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-opener": "^2.7.2",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

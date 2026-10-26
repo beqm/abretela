@@ -10,6 +10,7 @@
     type RoomSettings,
   } from "./lib/quality";
   import Segmented from "./Segmented.svelte";
+  import Credits from "./Credits.svelte";
 
   type Props = {
     onenter: (room: { client: RoomClient; code: string; password: string; isHost: boolean }) => void;
@@ -207,4 +208,5 @@
       <div class="error">{error}</div>
     {/if}
   </div>
+  <Credits />
 </div>
