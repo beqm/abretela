@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient, WrongPasswordError, parseInvite } from "./lib/room";
   import {
@@ -9,16 +10,18 @@
     saveJson,
     type RoomSettings,
   } from "./lib/quality";
-  import { t } from "./lib/prefs.svelte";
-  import Segmented from "./Segmented.svelte";
+  import { prefs, t } from "./lib/prefs.svelte";
   import Credits from "./Credits.svelte";
   import Icon from "./Icon.svelte";
   import SettingsPage from "./SettingsPage.svelte";
 
   type Props = {
-    onenter: (room: { client: RoomClient; code: string; password: string; isHost: boolean }) => void;
+    onenter: (room: { client: RoomClient; room: string; password: string; isHost: boolean }) => void;
+    /** Link de convite que abriu o app (abretela://...), ainda não usado. */
+    link?: string | null;
+    onlinkused?: () => void;
   };
-  let { onenter }: Props = $props();
+  let { onenter, link = null, onlinkused }: Props = $props();
 
   const NAME_KEY = "abretela.name";
   const SETTINGS_KEY = "abretela.roomSettings";
@@ -32,14 +35,27 @@
   let showOptions = $state(false);
   let showSettings = $state(false);
   let settings = $state<RoomSettings>(loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
+  let nameInput = $state<HTMLInputElement>();
 
   const trimmedName = $derived(name.trim());
-  // convite "codigo#senha" já traz a senha
+  // o convite (link) já traz a senha
   const invite = $derived(parseInvite(code));
   const inviteHasPassword = $derived(!!invite?.password);
 
-  const heightOpts = HEIGHTS.map((h) => ({ value: h as number, label: `${h}p` }));
-  const fpsOpts = FPS_OPTIONS.map((f) => ({ value: f as number, label: String(f) }));
+  // resumo das opções da sala, mostrado só quando fogem do padrão
+  const customized = $derived(
+    !!roomPassword.trim() ||
+      (Object.keys(DEFAULT_SETTINGS) as (keyof RoomSettings)[]).some((k) => settings[k] !== DEFAULT_SETTINGS[k]),
+  );
+  const summary = $derived(
+    [
+      roomPassword.trim() ? t("customPassword") : null,
+      `${settings.minHeight}p–${settings.maxHeight}p`,
+      `${settings.minFps}–${settings.maxFps} fps`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  );
 
   // mínimo nunca acima do máximo
   function setSetting(key: keyof RoomSettings, v: number) {
@@ -55,6 +71,20 @@
     saveJson(SETTINGS_KEY, settings);
   }
 
+  // chegou um link de convite: preenche e, se já der, entra direto
+  $effect(() => {
+    if (!link) return;
+    const l = link;
+    untrack(() => {
+      onlinkused?.();
+      showOptions = false;
+      code = l;
+      error = null;
+      if (trimmedName && !busy && parseInvite(l)?.password) joinRoom();
+      else nameInput?.focus();
+    });
+  });
+
   function errText(e: unknown) {
     if (e instanceof WrongPasswordError) return t("wrongPassword");
     if (e instanceof Error && e.message === "connect-failed") return t("connectFailed");
@@ -66,9 +96,11 @@
     saveJson(NAME_KEY, { name: trimmedName });
     busy = t("creatingRoom");
     try {
-      const info = await invoke<{ port: number; code: string; password: string }>("create_room", {
+      const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
         settings: $state.snapshot(settings),
         password: roomPassword.trim() || null,
+        hostName: trimmedName,
+        lang: prefs.lang,
       });
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password);
       try {
@@ -77,15 +109,15 @@
         await invoke("close_room");
         throw e;
       }
-      onenter({ client, code: info.code, password: info.password, isHost: true });
+      onenter({ client, room: info.url, password: info.password, isHost: true });
     } catch (e) {
       error = errText(e);
       busy = null;
     }
   }
 
-  async function joinRoom(e: SubmitEvent) {
-    e.preventDefault();
+  async function joinRoom(e?: SubmitEvent) {
+    e?.preventDefault();
     error = null;
     if (!invite) {
       error = t("invalidCode");
@@ -99,11 +131,11 @@
     saveJson(NAME_KEY, { name: trimmedName });
     busy = t("connecting");
     try {
-      const client = new RoomClient(invite.url, trimmedName, password);
+      const client = new RoomClient(invite.ws, trimmedName, password);
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
-      onenter({ client, code: invite.code, password, isHost: false });
+      onenter({ client, room: invite.room, password, isHost: false });
     } catch (e) {
       error = errText(e);
       busy = null;
@@ -123,67 +155,96 @@
   </div>
 
   <div class="card home-card">
-    <label class="field">
-      <span>{t("yourName")}</span>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input bind:value={name} maxlength="32" placeholder={t("namePlaceholder")} disabled={!!busy} autofocus />
-    </label>
-
-    <div class="create">
-      <button class="btn primary big" disabled={!trimmedName || !!busy} onclick={createRoom}>
-        <Icon name="tv" size={20} />
-        {t("createRoom")}
-      </button>
-      <button
-        class="btn square"
-        class:on={showOptions}
-        title={t("roomOptions")}
-        disabled={!!busy}
-        onclick={() => (showOptions = !showOptions)}><Icon name="sliders" size={20} /></button
-      >
-    </div>
-
     {#if showOptions}
-      <div class="room-options">
-        <label class="field">
-          <span><Icon name="lock" size={13} /> {t("roomPassword")}</span>
-          <input
-            bind:value={roomPassword}
-            maxlength="32"
-            placeholder={t("roomPasswordPlaceholder")}
-            spellcheck="false"
-          />
-        </label>
-        <div class="options-title">{t("allowedQuality")}</div>
-        <div class="options-grid">
-          <span class="opt-label">{t("minResolution")}</span>
-          <Segmented options={heightOpts} value={settings.minHeight} onchange={(v) => setSetting("minHeight", v)} />
-          <span class="opt-label">{t("maxResolution")}</span>
-          <Segmented options={heightOpts} value={settings.maxHeight} onchange={(v) => setSetting("maxHeight", v)} />
-          <span class="opt-label">{t("minFps")}</span>
-          <Segmented options={fpsOpts} value={settings.minFps} onchange={(v) => setSetting("minFps", v)} />
-          <span class="opt-label">{t("maxFps")}</span>
-          <Segmented options={fpsOpts} value={settings.maxFps} onchange={(v) => setSetting("maxFps", v)} />
+      <div class="options-head">
+        <button class="icon-btn small" title={t("back")} onclick={() => (showOptions = false)}>
+          <Icon name="arrowLeft" size={18} />
+        </button>
+        <h2>{t("roomOptions")}</h2>
+      </div>
+
+      <label class="field">
+        <span><Icon name="lock" size={13} /> {t("roomPassword")}</span>
+        <input bind:value={roomPassword} maxlength="32" placeholder={t("roomPasswordPlaceholder")} spellcheck="false" />
+      </label>
+
+      <div class="field">
+        <span>{t("allowedQuality")}</span>
+        <div class="range-rows">
+          <div class="range-row">
+            <span class="range-label">{t("resolution")}</span>
+            <select value={settings.minHeight} onchange={(e) => setSetting("minHeight", +e.currentTarget.value)}>
+              {#each HEIGHTS as h (h)}<option value={h}>{h}p</option>{/each}
+            </select>
+            <span class="range-to">{t("rangeTo")}</span>
+            <select value={settings.maxHeight} onchange={(e) => setSetting("maxHeight", +e.currentTarget.value)}>
+              {#each HEIGHTS as h (h)}<option value={h}>{h}p</option>{/each}
+            </select>
+          </div>
+          <div class="range-row">
+            <span class="range-label">{t("fps")}</span>
+            <select value={settings.minFps} onchange={(e) => setSetting("minFps", +e.currentTarget.value)}>
+              {#each FPS_OPTIONS as f (f)}<option value={f}>{f}</option>{/each}
+            </select>
+            <span class="range-to">{t("rangeTo")}</span>
+            <select value={settings.maxFps} onchange={(e) => setSetting("maxFps", +e.currentTarget.value)}>
+              {#each FPS_OPTIONS as f (f)}<option value={f}>{f}</option>{/each}
+            </select>
+          </div>
         </div>
         <p class="hint">{t("qualityHint")}</p>
       </div>
-    {/if}
 
-    <div class="divider"><span>{t("or")}</span></div>
-
-    <form class="join" onsubmit={joinRoom}>
-      <input bind:value={code} placeholder={t("invitePlaceholder")} disabled={!!busy} spellcheck="false" />
-      {#if !inviteHasPassword}
+      <button class="btn primary big" onclick={() => (showOptions = false)}>{t("done")}</button>
+    {:else}
+      <label class="field">
+        <span>{t("yourName")}</span>
+        <!-- svelte-ignore a11y_autofocus -->
         <input
-          class="password"
-          type="password"
-          bind:value={joinPassword}
-          placeholder={t("password")}
+          bind:this={nameInput}
+          bind:value={name}
+          maxlength="32"
+          placeholder={t("namePlaceholder")}
           disabled={!!busy}
+          autofocus
         />
+      </label>
+
+      <div class="create">
+        <button class="btn primary big" disabled={!trimmedName || !!busy} onclick={createRoom}>
+          <Icon name="tv" size={20} />
+          {t("createRoom")}
+        </button>
+        <button
+          class="btn big square"
+          title={t("roomOptions")}
+          disabled={!!busy}
+          onclick={() => (showOptions = true)}><Icon name="sliders" size={18} /></button
+        >
+      </div>
+      {#if customized}
+        <button class="options-summary" disabled={!!busy} onclick={() => (showOptions = true)}>
+          <Icon name="sliders" size={13} />
+          {summary}
+        </button>
       {/if}
-      <button class="btn" disabled={!trimmedName || !code.trim() || !!busy}>{t("join")}</button>
-    </form>
+
+      <div class="divider"><span>{t("or")}</span></div>
+
+      <form class="join" onsubmit={joinRoom}>
+        <input bind:value={code} placeholder={t("invitePlaceholder")} disabled={!!busy} spellcheck="false" />
+        {#if !inviteHasPassword}
+          <input
+            class="password"
+            type="password"
+            bind:value={joinPassword}
+            placeholder={t("password")}
+            disabled={!!busy}
+          />
+        {/if}
+        <button class="btn" disabled={!trimmedName || !code.trim() || !!busy}>{t("join")}</button>
+      </form>
+    {/if}
 
     {#if busy}
       <div class="status"><span class="spinner"></span> {busy}</div>

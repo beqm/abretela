@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { makeInvite, type RemoteView, type RoomClient } from "./lib/room";
+  import { makeInvite, parseInvite, roomLabel, type RemoteView, type RoomClient } from "./lib/room";
   import { startNativeCapture, type Source } from "./lib/capture";
   import { describeError, log } from "./lib/log";
   import type { Quality } from "./lib/quality";
-  import { t } from "./lib/prefs.svelte";
+  import { prefs, t } from "./lib/prefs.svelte";
   import { sounds } from "./lib/sounds";
   import SourcePicker from "./SourcePicker.svelte";
   import SettingsPage from "./SettingsPage.svelte";
@@ -16,12 +16,23 @@
 
   type Props = {
     client: RoomClient;
-    code: string;
+    /** URL https pública da sala. */
+    roomUrl: string;
     password: string;
     isHost: boolean;
     onexit: () => void;
+    /** Link de convite que chegou com o app aberto, ainda não usado. */
+    link?: string | null;
+    onlinkdismiss?: () => void;
   };
-  let { client, code, password, isHost, onexit }: Props = $props();
+  let { client, roomUrl, password, isHost, onexit, link = null, onlinkdismiss }: Props = $props();
+
+  // convite para outra sala chegando no meio desta: pergunta antes de sair
+  const linkRoom = $derived(link ? parseInvite(link)?.room : null);
+  $effect(() => {
+    if (link && linkRoom === roomUrl) onlinkdismiss?.(); // já estou nela
+  });
+  const switching = $derived(!!linkRoom && linkRoom !== roomUrl);
 
   // o RoomClient não é reativo; um contador força a releitura
   let tick = $state(0);
@@ -29,6 +40,7 @@
     const unsubscribe = client.subscribe(() => tick++);
     client.onPeerEvent = (kind) => sounds[kind]();
     sounds.join();
+    if (!pipSupported) log.warn("watching", "This WebView2 has no picture-in-picture, so the floating window button is hidden");
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !document.fullscreenElement) focusId = null;
     };
@@ -45,6 +57,57 @@
   let picking = $state(false);
   let showSettings = $state(false);
   let focusId = $state<string | null>(null);
+
+  // ---------- janela flutuante (Picture-in-Picture) ----------
+  // Um <video> próprio, fora dos tiles: trocar de layout recria os tiles, e a
+  // janela flutuante fecharia junto.
+  let pipVideo: HTMLVideoElement;
+  let pipId = $state<string | null>(null);
+  const pipSupported = document.pictureInPictureEnabled === true;
+
+  async function togglePopout(id: string) {
+    if (pipId === id) {
+      await document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+    const stream = client.views.get(id)?.stream;
+    if (!stream) return;
+    try {
+      pipVideo.srcObject = stream;
+      await pipVideo.play();
+      const win = await pipVideo.requestPictureInPicture();
+      pipId = id;
+      const report = () => client.setPip(id, win.width, win.height);
+      report();
+      win.addEventListener("resize", report);
+      log.info("watching", `Opened ${client.peers.get(id)?.name ?? id} in a floating window`);
+    } catch (e) {
+      log.error("watching", `Could not open the floating window: ${describeError(e)}`);
+      notice = t("popOutFailed");
+    }
+  }
+
+  function onLeavePip() {
+    if (pipId) log.info("watching", "Closed the floating window");
+    pipId = null;
+    client.setPip(null);
+    pipVideo.srcObject = null;
+  }
+
+  // segue a pessoa da janela flutuante: reconectou, troca o vídeo; parou, fecha
+  $effect(() => {
+    if (!pipId) return;
+    const tile = snap.tiles.find((x) => x.id === pipId);
+    if (!tile?.view.stream) {
+      document.exitPictureInPicture().catch(() => {});
+    } else if (pipVideo.srcObject !== tile.view.stream) {
+      pipVideo.srcObject = tile.view.stream;
+    }
+  });
+
+  onDestroy(() => {
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+  });
 
   const COLLAPSED_KEY = "abretela.sidebarCollapsed";
   let collapsed = $state(localStorage.getItem(COLLAPSED_KEY) === "1");
@@ -134,12 +197,18 @@
   async function startShare(pick: { source: Source; quality: Quality; audio: boolean }) {
     notice = null;
     try {
-      const capture = await startNativeCapture(pick.source.id, pick.quality.height, pick.quality.fps, pick.audio);
+      const capture = await startNativeCapture(
+        pick.source.id,
+        pick.quality.height,
+        pick.quality.fps,
+        pick.audio,
+        prefs.hwAccel,
+      );
       const title =
         pick.source.kind === "screen"
           ? t("screenN", { n: pick.source.title })
           : pick.source.app || pick.source.title;
-      client.startShare(capture, pick.quality, title);
+      client.startShare(capture, pick.quality, title, prefs.hwAccel);
     } catch (e) {
       log.error("sharing", `Could not start sharing: ${describeError(e)}`);
       notice = t("shareFailed", { e: String(e) });
@@ -149,7 +218,7 @@
   }
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(makeInvite(code, password));
+    await navigator.clipboard.writeText(makeInvite(roomUrl, password));
     copied = true;
     setTimeout(() => (copied = false), 1500);
   }
@@ -170,7 +239,7 @@
 
     <div class="room-pill">
       <span class="pill-label">{t("room")}</span>
-      <code title={code}>{code}</code>
+      <code title={roomUrl}>{roomLabel(roomUrl)}</code>
       <span class="pill-sep"></span>
       <Icon name="lock" size={14} />
       <code class="pw">{showPassword ? password : "•".repeat(password.length)}</code>
@@ -360,6 +429,9 @@
             onselect={() => {}}
             onclose={() => toggleWatch(focused.id, true)}
             onretry={() => client.retry(focused.id)}
+            onsize={(w, h) => client.setViewSize(focused.id, w, h)}
+            popped={pipId === focused.id}
+            onpopout={pipSupported && !focused.isSelf ? () => togglePopout(focused.id) : undefined}
           />
           <button class="btn small back-to-grid" onclick={() => (focusId = null)}>
             <Icon name="grid" size={16} />
@@ -379,6 +451,9 @@
                 onselect={() => (focusId = x.id)}
                 onclose={() => toggleWatch(x.id, true)}
                 onretry={() => client.retry(x.id)}
+                onsize={(w, h) => client.setViewSize(x.id, w, h)}
+                popped={pipId === x.id}
+                onpopout={pipSupported && !x.isSelf ? () => togglePopout(x.id) : undefined}
               />
             {/each}
           </div>
@@ -396,6 +471,9 @@
             onselect={() => (focusId = x.id)}
             onclose={() => toggleWatch(x.id, true)}
             onretry={() => client.retry(x.id)}
+            onsize={(w, h) => client.setViewSize(x.id, w, h)}
+            popped={pipId === x.id}
+            onpopout={pipSupported && !x.isSelf ? () => togglePopout(x.id) : undefined}
           />
         {/each}
       </div>
@@ -403,8 +481,21 @@
   </main>
   </div>
 
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <video class="pip-source" bind:this={pipVideo} muted playsinline onleavepictureinpicture={onLeavePip}></video>
+
   {#if picking}
     <SourcePicker settings={client.settings} onpick={startShare} oncancel={() => (picking = false)} />
+  {/if}
+  {#if switching}
+    <ConfirmModal
+      title={t("switchRoomTitle")}
+      message={isHost && client.peers.size > 1 ? t("hostSwitchRoomBody") : t("switchRoomBody")}
+      confirmLabel={t("switchRoom")}
+      cancelLabel={t("cancel")}
+      onconfirm={doLeave}
+      oncancel={() => onlinkdismiss?.()}
+    />
   {/if}
   {#if confirmingLeave}
     <ConfirmModal

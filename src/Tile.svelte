@@ -16,6 +16,12 @@
     onselect: () => void;
     onclose: () => void;
     onretry: () => void;
+    /** Avisado quando o tile muda de tamanho (para pedir a qualidade certa). */
+    onsize?: (width: number, height: number) => void;
+    /** Abre/fecha esta tela numa janela flutuante (sem isso, não mostra o botão). */
+    onpopout?: () => void;
+    /** Esta tela está aberta na janela flutuante. */
+    popped?: boolean;
   };
   let {
     name,
@@ -28,6 +34,9 @@
     onselect,
     onclose,
     onretry,
+    onsize,
+    onpopout,
+    popped = false,
   }: Props = $props();
 
   let tile: HTMLDivElement;
@@ -49,6 +58,15 @@
       },
     };
   }
+
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width && height) onsize?.(width, height);
+    });
+    observer.observe(tile);
+    return () => observer.disconnect();
+  });
 
   onMount(() => {
     const onChange = () => {
@@ -78,7 +96,15 @@
 <div class="tile" class:compact class:focused bind:this={tile} onclick={onselect} ondblclick={toggleFullscreen}>
   <video use:srcObject={view.stream} autoplay playsinline muted={isSelf || muted} bind:volume></video>
 
-  {#if view.state !== "connected" && !isSelf}
+  {#if popped}
+    <div class="tile-overlay popped">
+      <Icon name="pip" size={compact ? 20 : 28} />
+      {#if !compact}
+        <span>{t("poppedOut")}</span>
+        <button class="btn small" onclick={stop(() => onpopout?.())}>{t("bringBack")}</button>
+      {/if}
+    </div>
+  {:else if view.state !== "connected" && !isSelf}
     <div class="tile-overlay">
       {#if view.state === "connecting"}
         <span class="spinner"></span>
@@ -115,6 +141,11 @@
               muted = false;
             }}
           />
+        {/if}
+        {#if onpopout && view.stream}
+          <button class="icon-btn" class:active={popped} title={popped ? t("bringBack") : t("popOut")} onclick={stop(onpopout)}>
+            <Icon name="pip" />
+          </button>
         {/if}
         <button class="icon-btn" title={t("fullscreen")} onclick={toggleFullscreen}><Icon name="maximize" /></button>
         <button class="icon-btn" title={t("stopWatching")} onclick={stop(onclose)}><Icon name="x" /></button>

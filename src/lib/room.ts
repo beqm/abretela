@@ -6,6 +6,7 @@ import type { NativeCapture } from "./capture";
 import { describeError, log } from "./log";
 import {
   DEFAULT_SETTINGS,
+  HEIGHTS,
   qualityLabel,
   videoBitrate,
   type Quality,
@@ -24,7 +25,9 @@ type SignalData =
   | { kind: "unwatch" }
   | { kind: "offer"; sdp: string }
   | { kind: "answer"; sdp: string }
-  | { kind: "ice"; role: "sharer" | "viewer"; candidate: RTCIceCandidateInit };
+  | { kind: "ice"; role: "sharer" | "viewer"; candidate: RTCIceCandidateInit }
+  /** Tamanho em que quem assiste está vendo a tela (altura em pixels; 0 = app escondido). */
+  | { kind: "view"; height: number };
 
 type ServerMsg =
   | { type: "welcome"; id: string; peers: PeerInfo[]; settings: RoomSettings }
@@ -51,6 +54,8 @@ const AUDIO_BITRATE = 128_000;
 /** Executa as operações de uma conexão em ordem (evita corridas de SDP/ICE). */
 class Conn {
   private chain: Promise<void> = Promise.resolve();
+  /** Última qualidade aplicada para este espectador (para logar só mudanças). */
+  applied = "";
   /** Tipos de rota (host/srflx/relay) achados aqui e recebidos do outro lado. */
   localRoutes: string[] = [];
   remoteRoutes: string[] = [];
@@ -106,8 +111,9 @@ async function describeVideo(conn: Conn) {
   stats.forEach((s) => {
     if (s.kind !== "video") return;
     if (s.type === "outbound-rtp") {
+      const codec = stats.get(s.codecId)?.mimeType?.replace("video/", "") ?? "?";
       const msg =
-        `Video ${conn.who} after 5s: ${s.framesEncoded ?? 0} frames encoded, ` +
+        `Video ${conn.who} after 5s: ${codec}, ${s.framesEncoded ?? 0} frames encoded, ` +
         `${s.frameWidth ?? "?"}x${s.frameHeight ?? "?"} at ${s.framesPerSecond ?? 0} fps, ` +
         `${Math.round((s.bytesSent ?? 0) / 1024)} KB sent, encoder: ${s.encoderImplementation ?? "unknown"}, ` +
         `limited by: ${s.qualityLimitationReason ?? "nothing"}`;
@@ -197,6 +203,43 @@ function tuneOpus(sdp: string): string {
   );
 }
 
+/**
+ * Ordem dos codecs de vídeo. Com aceleração, H.264 primeiro: o WebView2
+ * codifica na placa de vídeo (NVENC, QuickSync, AMF), quase sem custo no
+ * processador. Sem aceleração, VP8 primeiro (sempre em software).
+ */
+function preferCodecs(transceiver: RTCRtpTransceiver, hw: boolean) {
+  const codecs = RTCRtpSender.getCapabilities("video")?.codecs;
+  if (!codecs || !transceiver.setCodecPreferences) return;
+  const rank = (c: RTCRtpCodec) => {
+    const mime = c.mimeType.toLowerCase();
+    const fmtp = c.sdpFmtpLine ?? "";
+    if (mime === "video/h264") {
+      // perfil baseline (42e0..) com packetization-mode=1: o que todo encoder de placa aceita
+      const baseline = /profile-level-id=42e0/i.test(fmtp) ? 0 : 1;
+      const mode1 = /packetization-mode=1/.test(fmtp) ? 0 : 2;
+      return (hw ? 0 : 10) + baseline + mode1;
+    }
+    if (mime === "video/vp8") return hw ? 10 : 0;
+    if (mime === "video/vp9") return 20;
+    if (mime === "video/av1") return 30;
+    return 40; // rtx, red, ulpfec: mantém no fim
+  };
+  const sorted = [...codecs].sort((a, b) => rank(a) - rank(b));
+  try {
+    transceiver.setCodecPreferences(sorted);
+  } catch (e) {
+    log.warn("sharing", `Could not set the video codec order: ${describeError(e)}`);
+  }
+}
+
+/** Altura (360/480/720/1080) que basta para um vídeo 16:9 exibido nesse tamanho em pixels CSS. */
+function heightTier(width: number, height: number): number {
+  // object-fit: contain; o que conta é a altura visível
+  const visible = Math.min(height, (width * 9) / 16) * devicePixelRatio;
+  return HEIGHTS.find((h) => h >= visible * 0.9) ?? HEIGHTS[HEIGHTS.length - 1];
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class RoomClient {
@@ -221,8 +264,18 @@ export class RoomClient {
   private disposed = false;
   private capture: NativeCapture | null = null;
   private quality: Quality = { height: 720, fps: 30 };
+  /** Prefere H.264 (codificado pela placa de vídeo) ao VP8 (no processador). */
+  private hwEncode = true;
   /** Conta as tentativas de assistir cada pessoa (para o aviso de "travou"). */
   private watchAttempt = new Map<string, number>();
+  /** Quem assiste: altura em que estou vendo cada pessoa, e o que já avisei a ela. */
+  private viewHeight = new Map<string, number>();
+  private sentView = new Map<string, number>();
+  /** Quem transmite: altura pedida por cada espectador. */
+  private viewerWants = new Map<string, number>();
+  /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
+  private pip: { id: string; height: number } | null = null;
+  private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
 
   constructor(
     private url: string,
@@ -325,6 +378,7 @@ export class RoomClient {
   }
 
   private teardown() {
+    document.removeEventListener("visibilitychange", this.onVisibility);
     this.capture?.stop();
     this.capture = null;
     this.localStream = null;
@@ -353,6 +407,7 @@ export class RoomClient {
         this.peers.set(msg.id, { id: msg.id, name: this.name, sharing: false });
         msg.peers.forEach((p) => this.peers.set(p.id, p));
         this.status = "connected";
+        document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
         break;
@@ -366,6 +421,7 @@ export class RoomClient {
         log.info("room", `${this.nameOf(msg.id)} left`);
         this.peers.delete(msg.id);
         this.onPeerEvent?.("leave");
+        this.viewerWants.delete(msg.id);
         this.closeOut(msg.id);
         this.dropView(msg.id);
         break;
@@ -395,7 +451,7 @@ export class RoomClient {
   // ---------- transmitir ----------
 
   /** Começa a transmitir uma captura nativa já iniciada. */
-  startShare(capture: NativeCapture, quality: Quality, sourceTitle: string) {
+  startShare(capture: NativeCapture, quality: Quality, sourceTitle: string, hwEncode: boolean) {
     if (this.status !== "connected") {
       log.warn("sharing", "Tried to start sharing while not connected to the room");
       capture.stop();
@@ -404,13 +460,15 @@ export class RoomClient {
     this.stopShare();
     this.capture = capture;
     this.quality = quality;
+    this.hwEncode = hwEncode;
     this.localStream = capture.stream;
     capture.onEnded = () => this.stopShare();
 
     const label = `${qualityLabel(quality)} · ${sourceTitle}`.slice(0, 48);
     log.info(
       "sharing",
-      `Started sharing "${sourceTitle}" at ${qualityLabel(quality)}. Tracks: ${describeTracks(capture.stream)}`,
+      `Started sharing "${sourceTitle}" at ${qualityLabel(quality)}, ` +
+        `preferring ${hwEncode ? "H.264 (GPU)" : "VP8 (CPU)"}. Tracks: ${describeTracks(capture.stream)}`,
     );
     const me = this.peers.get(this.selfId)!;
     me.sharing = true;
@@ -465,7 +523,7 @@ export class RoomClient {
     };
     try {
       for (const track of stream.getTracks()) {
-        pc.addTransceiver(track, {
+        const transceiver = pc.addTransceiver(track, {
           direction: "sendonly",
           streams: [stream],
           sendEncodings: [
@@ -474,6 +532,7 @@ export class RoomClient {
               : { maxBitrate: AUDIO_BITRATE },
           ],
         });
+        if (track.kind === "video") preferCodecs(transceiver, this.hwEncode);
       }
     } catch (e) {
       log.error("sharing", `Could not add the video/audio to the connection ${who}: ${describeError(e)}`);
@@ -486,6 +545,42 @@ export class RoomClient {
       this.signal(viewerId, { kind: "offer", sdp: pc.localDescription!.sdp });
       log.info("sharing", `Sent the offer ${who} (codecs: ${[...codecs].join(", ") || "none!"})`);
     });
+    if (this.viewerWants.has(viewerId)) this.applyView(viewerId);
+  }
+
+  /**
+   * Ajusta o vídeo que vai para um espectador ao tamanho em que ele está
+   * vendo: miniatura recebe resolução e fps menores, e quem está com o app
+   * escondido não recebe vídeo (só áudio). Poupa upload e a placa de vídeo.
+   */
+  private applyView(viewerId: string) {
+    const conn = this.out.get(viewerId);
+    if (!conn) return;
+    conn.run("Adjusting the quality", async () => {
+      const sender = conn.pc.getSenders().find((s) => s.track?.kind === "video");
+      const params = sender?.getParameters();
+      const enc = params?.encodings?.[0];
+      if (!sender || !params || !enc) return;
+      const wants = this.viewerWants.get(viewerId) ?? this.quality.height;
+      let summary: string;
+      if (wants === 0) {
+        enc.active = false;
+        summary = "paused my video for them (AbreTela is hidden on their PC), audio keeps going";
+      } else {
+        const height = Math.min(wants, this.quality.height);
+        const fps = height < this.quality.height && height <= 480 ? Math.min(this.quality.fps, 30) : this.quality.fps;
+        const source = this.capture?.frameHeight || this.quality.height;
+        enc.active = true;
+        enc.scaleResolutionDownBy = Math.max(1, source / height);
+        enc.maxFramerate = fps;
+        enc.maxBitrate = videoBitrate({ height, fps });
+        summary = `sending ${qualityLabel({ height, fps })}`;
+      }
+      if (conn.applied === summary) return;
+      await sender.setParameters(params);
+      conn.applied = summary;
+      log.info("sharing", `${this.nameOf(viewerId)}: ${summary}`);
+    });
   }
 
   // ---------- assistir ----------
@@ -496,6 +591,8 @@ export class RoomClient {
       log.info("watching", `Asked to watch ${this.nameOf(id)}`);
       this.views.set(id, { stream: null, state: "connecting" });
       this.signal(id, { kind: "watch" });
+      this.sentView.delete(id);
+      this.sendView(id);
       const attempt = (this.watchAttempt.get(id) ?? 0) + 1;
       this.watchAttempt.set(id, attempt);
       setTimeout(() => this.checkStuck(id, attempt), 20_000);
@@ -533,7 +630,35 @@ export class RoomClient {
     this.watch(id);
   }
 
+  /** O tile de alguém mudou de tamanho (em pixels CSS). */
+  setViewSize(id: string, width: number, height: number) {
+    this.viewHeight.set(id, heightTier(width, height));
+    this.sendView(id);
+  }
+
+  /** A janela flutuante abriu (com o tamanho dela), mudou de tamanho ou fechou (`null`). */
+  setPip(id: string | null, width = 0, height = 0) {
+    const previous = this.pip?.id;
+    this.pip = id ? { id, height: heightTier(width, height) } : null;
+    if (previous && previous !== id) this.sendView(previous);
+    if (id) this.sendView(id);
+  }
+
+  /** Avisa quem transmite o tamanho em que estou vendo (só quando muda). */
+  private sendView(id: string) {
+    if (id === this.selfId || !this.watching.has(id)) return;
+    const tile = this.viewHeight.get(id);
+    const pip = this.pip?.id === id ? this.pip.height : 0;
+    if (tile === undefined && !pip) return;
+    // a janela flutuante continua visível mesmo com o app minimizado
+    const height = Math.max(document.hidden ? 0 : (tile ?? 0), pip);
+    if (this.sentView.get(id) === height) return;
+    this.sentView.set(id, height);
+    this.signal(id, { kind: "view", height });
+  }
+
   private dropView(id: string) {
+    this.sentView.delete(id);
     this.watching.delete(id);
     this.views.delete(id);
     this.inc.get(id)?.pc.close();
@@ -562,7 +687,12 @@ export class RoomClient {
         break;
       case "unwatch":
         log.info("sharing", `${this.nameOf(from)} stopped watching`);
+        this.viewerWants.delete(from);
         this.closeOut(from);
+        break;
+      case "view":
+        this.viewerWants.set(from, Math.max(0, Number(data.height) || 0));
+        this.applyView(from);
         break;
       case "offer": {
         if (!this.watching.has(from)) return;
@@ -618,24 +748,58 @@ export class RoomClient {
   }
 }
 
-/** Convite no formato "codigo#senha". */
-export const makeInvite = (code: string, password: string) => `${code}#${password}`;
+/**
+ * Link de convite: a URL pública da sala (que abre a página do convite) com a
+ * senha depois do "#" (o navegador nunca envia essa parte ao servidor).
+ */
+export const makeInvite = (roomUrl: string, password: string) => `${roomUrl}/#${encodeURIComponent(password)}`;
+
+export type Invite = {
+  /** URL https pública da sala, sem barra no fim. */
+  room: string;
+  /** Endereço do WebSocket de sinalização. */
+  ws: string;
+  password: string | null;
+};
+
+/** Nome curto para mostrar a sala (o primeiro pedaço do endereço). */
+export const roomLabel = (roomUrl: string) => {
+  try {
+    return new URL(roomUrl).hostname.split(".")[0];
+  } catch {
+    return roomUrl;
+  }
+};
 
 /**
- * Lê um convite. Aceita "abc-def", "abc-def#senha", "abc-def.trycloudflare.com"
- * ou a URL completa.
+ * Lê um convite. Aceita o link (https://endereço/#senha), o mesmo link vindo
+ * pelo protocolo (abretela://join/endereço#senha), só o endereço (com ou sem
+ * "#senha") e, por compatibilidade, os convites antigos que eram só o código
+ * do túnel do trycloudflare ("abc-def#senha").
  */
-export function parseInvite(
-  input: string,
-): { url: string; code: string; password: string | null } | null {
-  const [rawCode, ...rest] = input.trim().split("#");
-  const code = rawCode
-    .trim()
-    .toLowerCase()
-    .replace(/^(https?|wss?):\/\//, "")
-    .split("/")[0]
-    .replace(/\.trycloudflare\.com$/, "");
-  if (!/^[a-z0-9-]+$/.test(code)) return null;
-  const password = rest.length ? rest.join("#").trim() : null;
-  return { url: `wss://${code}.trycloudflare.com/ws`, code, password: password || null };
+export function parseInvite(input: string): Invite | null {
+  const raw = input.trim().replace(/^abretela:\/\/join\//i, "https://");
+  const hashAt = raw.indexOf("#");
+  let password = hashAt >= 0 ? raw.slice(hashAt + 1).trim() : "";
+  try {
+    password = decodeURIComponent(password);
+  } catch {}
+  let base = (hashAt >= 0 ? raw.slice(0, hashAt) : raw).trim();
+  if (!base) return null;
+
+  if (/^[a-z0-9-]+$/i.test(base)) {
+    base = `https://${base.toLowerCase()}.trycloudflare.com`; // convite antigo
+  } else if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+  let url: URL;
+  try {
+    url = new URL(base.replace(/^ws(s?):/i, "http$1:"));
+  } catch {
+    return null;
+  }
+  if (!/^https?:$/.test(url.protocol) || (!url.hostname.includes(".") && url.hostname !== "localhost")) return null;
+  const path = url.pathname.replace(/\/+$/, "").replace(/\/ws$/, "");
+  const room = `${url.protocol}//${url.host}${path}`;
+  return { room, ws: `${room.replace(/^http/, "ws")}/ws`, password: password || null };
 }

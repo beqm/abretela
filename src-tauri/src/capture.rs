@@ -28,6 +28,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
+use crate::gpu_convert::GpuConverter;
 use windows_capture::{
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     frame::Frame,
@@ -44,8 +45,10 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 const PKT_VIDEO: u8 = 1;
 const PKT_AUDIO: u8 = 2;
-/// Cabeçalho dos pacotes: [tipo, _, largura u16, altura u16, ...] = 16 bytes.
+/// Cabeçalho dos pacotes: [tipo, formato, largura u16, altura u16, ...] = 16 bytes.
 const HEADER: usize = 16;
+const FMT_I420: u8 = 0;
+const FMT_NV12: u8 = 1;
 
 // ---------------------------------------------------------------------------
 // Fontes (telas e janelas)
@@ -183,6 +186,15 @@ where
     }
 }
 
+/// Tamanho final que cabe em `max_w` x `max_h` mantendo a proporção, sem
+/// ampliar e com dimensões pares (exigência do I420/NV12).
+fn target_size(sw: u32, sh: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    let scale = (max_w as f64 / sw as f64).min(max_h as f64 / sh as f64).min(1.0);
+    let dw = (((sw as f64 * scale) as u32) & !1).max(2);
+    let dh = (((sh as f64 * scale) as u32) & !1).max(2);
+    (dw, dh)
+}
+
 /// Copia o frame (sem padding) e redimensiona para caber em `max_w` x `max_h`,
 /// mantendo a proporção. Retorna (largura, altura, bgra).
 fn scaled_bgra(
@@ -200,10 +212,7 @@ fn scaled_bgra(
         buf.as_raw_buffer()
     };
 
-    let scale = (max_w as f64 / sw as f64).min(max_h as f64 / sh as f64).min(1.0);
-    // dimensões pares (exigência do I420)
-    let dw = (((sw as f64 * scale) as u32) & !1).max(2);
-    let dh = (((sh as f64 * scale) as u32) & !1).max(2);
+    let (dw, dh) = target_size(sw, sh, max_w, max_h);
 
     if (dw, dh) == (sw, sh) {
         return Ok((dw, dh, src[..(dw * dh * 4) as usize].to_vec()));
@@ -217,8 +226,36 @@ fn scaled_bgra(
     Ok((dw, dh, dst.into_vec()))
 }
 
+/// Baixa a prioridade da thread atual, para a captura não disputar o
+/// processador com o jogo.
+fn lower_thread_priority() {
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
+}
+
+/// Poucas threads e de baixa prioridade para a conversão no processador: o
+/// pool global do rayon usaria todos os núcleos a cada frame.
+fn convert_pool() -> &'static rayon::ThreadPool {
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let cores = thread::available_parallelism().map_or(4, |n| n.get());
+        rayon::ThreadPoolBuilder::new()
+            .num_threads((cores / 4).clamp(2, 4))
+            .thread_name(|i| format!("capture-convert-{i}"))
+            .start_handler(|_| lower_thread_priority())
+            .build()
+            .expect("pool de conversão")
+    })
+}
+
 /// BGRA -> I420 (BT.709, faixa limitada), em paralelo por pares de linhas.
 fn bgra_to_i420(w: usize, h: usize, bgra: &[u8], out: &mut [u8]) {
+    convert_pool().install(|| bgra_to_i420_rows(w, h, bgra, out));
+}
+
+fn bgra_to_i420_rows(w: usize, h: usize, bgra: &[u8], out: &mut [u8]) {
     let (y_plane, uv) = out.split_at_mut(w * h);
     let (u_plane, v_plane) = uv.split_at_mut(w * h / 4);
     let cw = w / 2;
@@ -310,6 +347,8 @@ pub fn thumbnail(id: &str) -> Option<String> {
 
 struct StreamFlags {
     max_h: u32,
+    /// Converter na placa de vídeo (aceleração de hardware ligada).
+    gpu: bool,
     latest: Arc<Mutex<Option<Bytes>>>,
     fresh: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
@@ -320,6 +359,13 @@ struct Streamer {
     resizer: fr::Resizer,
     scratch: Vec<u8>,
     frames: u64,
+    gpu: Option<GpuConverter>,
+    /// A conversão na placa falhou uma vez: segue no processador.
+    gpu_failed: bool,
+    /// Tempo gasto processando frames desde o último relatório no log.
+    busy: Duration,
+    busy_frames: u32,
+    next_report: Instant,
 }
 
 impl GraphicsCaptureApiHandler for Streamer {
@@ -327,7 +373,17 @@ impl GraphicsCaptureApiHandler for Streamer {
     type Error = BoxError;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Self { flags: ctx.flags, resizer: fr::Resizer::new(), scratch: Vec::new(), frames: 0 })
+        Ok(Self {
+            gpu_failed: !ctx.flags.gpu,
+            flags: ctx.flags,
+            resizer: fr::Resizer::new(),
+            scratch: Vec::new(),
+            frames: 0,
+            gpu: None,
+            busy: Duration::ZERO,
+            busy_frames: 0,
+            next_report: Instant::now() + Duration::from_secs(10),
+        })
     }
 
     fn on_frame_arrived(
@@ -340,20 +396,35 @@ impl GraphicsCaptureApiHandler for Streamer {
             control.stop();
             return Ok(());
         }
+        if self.frames == 1 {
+            lower_thread_priority();
+        }
         let max_h = self.flags.max_h;
         let max_w = max_h * 21 / 9; // limita ultrawide
-        let (src_w, src_h) = (frame.width(), frame.height());
-        let (w, h, bgra) = scaled_bgra(frame, max_w, max_h, &mut self.resizer, &mut self.scratch)
-            .inspect_err(|e| log_error!("capture", "Could not process a captured frame: {e}"))?;
+        let src = (frame.width(), frame.height());
+        let started = Instant::now();
+        let pkt = match self.convert_on_gpu(frame, max_w, max_h) {
+            Some(pkt) => pkt,
+            None => {
+                let (w, h, bgra) = scaled_bgra(frame, max_w, max_h, &mut self.resizer, &mut self.scratch)
+                    .inspect_err(|e| log_error!("capture", "Could not process a captured frame: {e}"))?;
+                let mut pkt = video_packet(FMT_I420, w, h);
+                bgra_to_i420(w as usize, h as usize, &bgra, &mut pkt[HEADER..]);
+                pkt
+            }
+        };
+        self.report_time(started.elapsed(), pkt[1]);
         if self.frames == 1 {
-            log_info!("capture", "First frame captured: {src_w}x{src_h}, sent as {w}x{h}");
+            let w = u16::from_le_bytes([pkt[2], pkt[3]]);
+            let h = u16::from_le_bytes([pkt[4], pkt[5]]);
+            log_info!(
+                "capture",
+                "First frame captured: {}x{}, sent as {w}x{h}, converted on the {}",
+                src.0,
+                src.1,
+                if pkt[1] == FMT_NV12 { "GPU" } else { "CPU" }
+            );
         }
-
-        let mut pkt = vec![0u8; HEADER + (w * h * 3 / 2) as usize];
-        pkt[0] = PKT_VIDEO;
-        pkt[2..4].copy_from_slice(&(w as u16).to_le_bytes());
-        pkt[4..6].copy_from_slice(&(h as u16).to_le_bytes());
-        bgra_to_i420(w as usize, h as usize, &bgra, &mut pkt[HEADER..]);
 
         *self.flags.latest.lock().unwrap() = Some(Bytes::from(pkt));
         self.flags.fresh.store(true, Ordering::Release);
@@ -365,6 +436,65 @@ impl GraphicsCaptureApiHandler for Streamer {
         log_info!("capture", "The captured window or screen went away, stopping ({} frames captured)", self.frames);
         self.flags.stop.store(true, Ordering::Relaxed);
         Ok(())
+    }
+}
+
+fn video_packet(format: u8, w: u32, h: u32) -> Vec<u8> {
+    let mut pkt = vec![0u8; HEADER + (w * h * 3 / 2) as usize];
+    pkt[0] = PKT_VIDEO;
+    pkt[1] = format;
+    pkt[2..4].copy_from_slice(&(w as u16).to_le_bytes());
+    pkt[4..6].copy_from_slice(&(h as u16).to_le_bytes());
+    pkt
+}
+
+impl Streamer {
+    /// De tempos em tempos, diz no log quanto custa processar cada frame.
+    fn report_time(&mut self, took: Duration, format: u8) {
+        self.busy += took;
+        self.busy_frames += 1;
+        if Instant::now() < self.next_report {
+            return;
+        }
+        log_info!(
+            "capture",
+            "Processing a frame takes {:.1} ms on average on the {} ({} frames)",
+            self.busy.as_secs_f64() * 1000.0 / self.busy_frames as f64,
+            if format == FMT_NV12 { "GPU" } else { "CPU" },
+            self.busy_frames
+        );
+        self.busy = Duration::ZERO;
+        self.busy_frames = 0;
+        self.next_report = Instant::now() + Duration::from_secs(300);
+    }
+
+    /// Converte na placa de vídeo; `None` = use o processador (desligado ou
+    /// falhou, e aí não tenta de novo nesta transmissão).
+    fn convert_on_gpu(&mut self, frame: &mut Frame, max_w: u32, max_h: u32) -> Option<Vec<u8>> {
+        if self.gpu_failed {
+            return None;
+        }
+        let src = (frame.width(), frame.height());
+        let dst = target_size(src.0, src.1, max_w, max_h);
+        let result = (|| {
+            if !self.gpu.as_ref().is_some_and(|g| g.fits(src, dst)) {
+                self.gpu = None;
+                self.gpu = Some(GpuConverter::new(frame.device(), frame.device_context(), src, dst)?);
+            }
+            let gpu = self.gpu.as_ref().unwrap();
+            let mut pkt = video_packet(FMT_NV12, dst.0, dst.1);
+            gpu.convert(frame.device_context(), frame.as_raw_texture(), &mut pkt[HEADER..])?;
+            Ok::<_, BoxError>(pkt)
+        })();
+        match result {
+            Ok(pkt) => Some(pkt),
+            Err(e) => {
+                log_warn!("capture", "Could not convert frames on the GPU, using the CPU instead: {e}");
+                self.gpu = None;
+                self.gpu_failed = true;
+                None
+            }
+        }
     }
 }
 
@@ -484,7 +614,7 @@ pub fn stop() {
     stop_if(None);
 }
 
-pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, String> {
+pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<String, String> {
     stop();
     let port = *PORT.get().ok_or("servidor de captura não iniciado")?;
     let target = parse_target(id).ok_or("fonte inválida")?;
@@ -499,8 +629,9 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, Str
     };
     log_info!(
         "capture",
-        "Starting capture of {what} at up to {height}p {fps}fps, audio {}",
-        if audio { "on" } else { "off" }
+        "Starting capture of {what} at up to {height}p {fps}fps, audio {}, hardware acceleration {}",
+        if audio { "on" } else { "off" },
+        if gpu { "on" } else { "off" }
     );
 
     let audio_target = match &target {
@@ -520,6 +651,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, Str
         Some(fps),
         StreamFlags {
             max_h: height,
+            gpu,
             latest: latest.clone(),
             fresh: fresh.clone(),
             stop: stop.clone(),
@@ -640,20 +772,62 @@ mod tests {
         let thumb = thumbnail(&screen);
         println!("thumbnail: {:?} bytes em {:?}", thumb.map(|t| t.len()), t.elapsed());
 
-        let url = start(&screen, height, fps, true).unwrap();
+        let gpu = std::env::var("CAPTURE_GPU").map_or(true, |v| v != "0");
+        let url = start(&screen, height, fps, true, gpu).unwrap();
         println!("url: {url}");
         let (mut video, mut audio) = SESSION.lock().unwrap().as_mut().unwrap().channels.take().unwrap();
-        let (mut nv, mut na, mut dims) = (0, 0, (0u16, 0u16));
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        let (mut nv, mut na, mut dims, mut fmt) = (0, 0, (0u16, 0u16), 0u8);
+        let mut last = None;
+        let secs: u64 = std::env::var("CAPTURE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
         loop {
             tokio::select! {
-                Some(v) = video.recv() => { nv += 1; dims = (u16::from_le_bytes([v[2], v[3]]), u16::from_le_bytes([v[4], v[5]])); }
+                Some(v) = video.recv() => { nv += 1; fmt = v[1]; dims = (u16::from_le_bytes([v[2], v[3]]), u16::from_le_bytes([v[4], v[5]])); last = Some(v); }
                 Some(_) = audio.recv() => na += 1,
                 _ = tokio::time::sleep_until(deadline) => break,
             }
         }
         stop();
-        println!("video frames: {nv} ({}x{}), audio packets: {na}", dims.0, dims.1);
+        println!(
+            "video frames: {nv} ({}x{}, {}), audio packets: {na}",
+            dims.0,
+            dims.1,
+            if fmt == FMT_NV12 { "NV12/GPU" } else { "I420/CPU" }
+        );
+        if let (Ok(path), Some(pkt)) = (std::env::var("CAPTURE_DUMP"), last) {
+            dump_jpeg(&pkt, &path);
+            println!("frame salvo em {path}");
+        }
         assert!(nv > 0);
+    }
+
+    /// Converte um pacote de vídeo (I420 ou NV12, BT.709 limitado) de volta
+    /// para RGB e salva em JPEG, para conferir as cores a olho.
+    fn dump_jpeg(pkt: &[u8], path: &str) {
+        let w = u16::from_le_bytes([pkt[2], pkt[3]]) as usize;
+        let h = u16::from_le_bytes([pkt[4], pkt[5]]) as usize;
+        let data = &pkt[HEADER..];
+        let (y, uv) = data.split_at(w * h);
+        let mut rgb = vec![0u8; w * h * 3];
+        for row in 0..h {
+            for col in 0..w {
+                let ci = (row / 2) * (w / 2) + col / 2;
+                let (u, v) = if pkt[1] == FMT_NV12 {
+                    let i = (row / 2) * w + (col / 2) * 2;
+                    (uv[i], uv[i + 1])
+                } else {
+                    (uv[ci], uv[w * h / 4 + ci])
+                };
+                let yf = (y[row * w + col] as f32 - 16.0) * 1.164;
+                let (uf, vf) = (u as f32 - 128.0, v as f32 - 128.0);
+                let px = &mut rgb[(row * w + col) * 3..][..3];
+                px[0] = (yf + 1.793 * vf).clamp(0.0, 255.0) as u8;
+                px[1] = (yf - 0.213 * uf - 0.533 * vf).clamp(0.0, 255.0) as u8;
+                px[2] = (yf + 2.112 * uf).clamp(0.0, 255.0) as u8;
+            }
+        }
+        jpeg_encoder::Encoder::new(std::fs::File::create(path).unwrap(), 85)
+            .encode(&rgb, w as u16, h as u16, jpeg_encoder::ColorType::Rgb)
+            .unwrap();
     }
 }

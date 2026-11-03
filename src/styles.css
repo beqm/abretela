@@ -539,30 +539,81 @@ p {
   gap: 8px;
 }
 
-.room-options {
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  border-radius: var(--r);
-  padding: 14px;
+.options-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 2px -6px;
+}
+
+.options-head h2 {
+  font-size: 16px;
+}
+
+.range-rows {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
-.room-options input {
-  background: var(--surface);
-}
-
-.options-grid {
+.range-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px 12px;
+  grid-template-columns: 84px 1fr auto 1fr;
   align-items: center;
+  gap: 8px;
 }
 
-.options-grid .segmented {
-  width: 100%;
-  background: var(--surface-3);
+.range-label {
+  font-weight: 600;
+}
+
+.range-to {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+select {
+  height: 38px;
+  padding: 0 32px 0 12px;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a9998b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 12px center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+select:hover {
+  border-color: var(--muted);
+}
+
+select:focus-visible {
+  border-color: var(--primary);
+}
+
+.options-summary {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.options-summary:hover {
+  color: var(--text);
 }
 
 .divider {
@@ -903,6 +954,23 @@ p {
 
 .tile-overlay .btn:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.tile-overlay.popped {
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.tile-bar .icon-btn.active {
+  color: var(--primary-text);
+}
+
+/* fonte da janela flutuante: precisa estar no DOM, mas não aparece */
+.pip-source {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .tile-tag {
@@ -1318,6 +1386,13 @@ p {
   .home-card {
     padding: 18px;
     gap: 12px;
+  }
+}
+
+/* janela no tamanho mínimo: os créditos ficam só em Configurações > Sobre */
+@media (max-height: 600px) {
+  .home > .credits {
+    display: none;
   }
 }
 

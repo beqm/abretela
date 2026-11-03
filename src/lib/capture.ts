@@ -22,11 +22,15 @@ export type NativeCapture = {
   stop: () => void;
   /** Chamado quando a captura termina sozinha (ex.: janela fechada). */
   onEnded: (() => void) | null;
+  /** Altura real do último frame (pode ser menor que a pedida, ex.: janela pequena). */
+  frameHeight: number;
 };
 
 const PKT_VIDEO = 1;
 const PKT_AUDIO = 2;
 const HEADER = 16;
+/** Formato do vídeo no byte 1: convertido no processador ou na placa. */
+const FMT_NV12 = 1;
 
 export const listSources = () => invoke<Source[]>("list_sources");
 export const getThumbnail = (id: string) => invoke<string | null>("thumbnail", { id });
@@ -36,8 +40,9 @@ export async function startNativeCapture(
   height: number,
   fps: number,
   audio: boolean,
+  gpu: boolean,
 ): Promise<NativeCapture> {
-  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio });
+  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu });
   const token = url.split("/").pop()!;
 
   const video = new MediaStreamTrackGenerator({ kind: "video" });
@@ -73,7 +78,7 @@ export async function startNativeCapture(
   ws.onopen = () => log.info("capture", "Receiving frames from the native capture");
   ws.onerror = () => log.error("capture", "The connection to the native capture failed");
 
-  const capture: NativeCapture = { stream: new MediaStream(tracks), stop, onEnded: null };
+  const capture: NativeCapture = { stream: new MediaStream(tracks), stop, onEnded: null, frameHeight: 0 };
 
   ws.onmessage = (ev) => {
     const buf = ev.data as ArrayBuffer;
@@ -84,7 +89,7 @@ export async function startNativeCapture(
       let frame: VideoFrame;
       try {
         frame = new VideoFrame(new Uint8Array(buf, HEADER), {
-          format: "I420",
+          format: dv.getUint8(1) === FMT_NV12 ? "NV12" : "I420",
           codedWidth: dv.getUint16(2, true),
           codedHeight: dv.getUint16(4, true),
           timestamp: Math.round(performance.now() * 1000),
@@ -94,6 +99,7 @@ export async function startNativeCapture(
         if (writeErrors++ < 3) log.error("capture", `Could not create a video frame: ${describeError(e)}`);
         return;
       }
+      capture.frameHeight = frame.codedHeight;
       if (++framesIn === 1) {
         log.info("capture", `First video frame reached the app (${frame.codedWidth}x${frame.codedHeight})`);
       }

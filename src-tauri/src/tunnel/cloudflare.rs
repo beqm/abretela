@@ -1,5 +1,5 @@
-//! Inicia o cloudflared embutido (quick tunnel do trycloudflare) apontando
-//! para o servidor local e descobre a URL pública gerada.
+//! Provedor Cloudflare: inicia o cloudflared embutido (quick tunnel do
+//! trycloudflare) apontando para o servidor local e descobre a URL pública.
 
 use std::{process::Stdio, time::Duration};
 use tokio::{
@@ -10,7 +10,29 @@ use tokio::{
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-pub async fn start(port: u16) -> Result<(Child, String), String> {
+pub struct CloudflareTunnel {
+    child: Child,
+    url: String,
+}
+
+impl super::Tunnel for CloudflareTunnel {
+    fn public_url(&self) -> &str {
+        &self.url
+    }
+
+    fn close(&mut self) {
+        let _ = self.child.start_kill();
+    }
+}
+
+impl CloudflareTunnel {
+    pub async fn open(port: u16) -> Result<Self, String> {
+        let (child, url) = start(port).await?;
+        Ok(Self { child, url })
+    }
+}
+
+async fn start(port: u16) -> Result<(Child, String), String> {
     let exe = std::env::current_exe()
         .map_err(|e| e.to_string())?
         .with_file_name("cloudflared.exe");

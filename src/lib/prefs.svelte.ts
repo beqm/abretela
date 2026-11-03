@@ -27,7 +27,7 @@ function detectLang(): Lang {
   return (LANGUAGES.find((l) => l.code === nav)?.code ?? "pt") as Lang;
 }
 
-type Prefs = { lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean };
+type Prefs = { lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean; hwAccel: boolean };
 
 function load(): Prefs {
   let saved: Partial<Prefs> = {};
@@ -39,6 +39,7 @@ function load(): Prefs {
     theme: saved.theme && ["system", "light", "dark"].includes(saved.theme) ? saved.theme : "system",
     closeToTray: saved.closeToTray ?? true,
     sounds: saved.sounds ?? true,
+    hwAccel: saved.hwAccel ?? true,
   };
 }
 
@@ -81,6 +82,14 @@ export const prefs = {
   },
   set sounds(v: boolean) {
     state.sounds = v;
+    apply();
+  },
+  /** Placa de vídeo na conversão da captura e na codificação (H.264). */
+  get hwAccel() {
+    return state.hwAccel;
+  },
+  set hwAccel(v: boolean) {
+    state.hwAccel = v;
     apply();
   },
 };

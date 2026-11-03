@@ -148,6 +148,18 @@
             />
           </div>
         </section>
+
+        <section class="settings-group">
+          <div class="group-label"><Icon name="tv" size={15} /> {t("performance")}</div>
+          <div class="toggles">
+            <Toggle
+              label={t("hwAccel")}
+              hint={t("hwAccelHint")}
+              checked={prefs.hwAccel}
+              onchange={(v) => (prefs.hwAccel = v)}
+            />
+          </div>
+        </section>
       {:else if section === "appearance"}
         <section class="settings-group">
           <div class="group-label"><Icon name="sun" size={15} /> {t("theme")}</div>

@@ -1,12 +1,14 @@
 //! Servidor de sinalização: guarda quem está na sala e repassa as mensagens
 //! WebRTC entre os participantes. Vídeo e áudio nunca passam por aqui.
+//! Também serve a página do link de convite (`/`).
 
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    response::IntoResponse,
+    http::{header, HeaderMap},
+    response::{Html, IntoResponse},
     routing::get,
     Router,
 };
@@ -22,6 +24,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{mpsc, watch, Mutex};
+
+use crate::invite_page::{InvitePage, RoomStats};
+
+const LOGO_PNG: &[u8] = include_bytes!("../icons/128x128@2x.png");
 
 #[derive(Clone, Serialize)]
 struct PeerInfo {
@@ -53,6 +59,7 @@ struct Hub {
     shutdown: watch::Receiver<bool>,
     settings: RoomSettings,
     password: String,
+    page: InvitePage,
 }
 
 #[derive(Deserialize)]
@@ -72,7 +79,7 @@ pub struct RunningServer {
     pub stop: watch::Sender<bool>,
 }
 
-pub async fn start(settings: RoomSettings, password: String) -> std::io::Result<RunningServer> {
+pub async fn start(settings: RoomSettings, password: String, page: InvitePage) -> std::io::Result<RunningServer> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let (stop, stop_rx) = watch::channel(false);
@@ -83,8 +90,11 @@ pub async fn start(settings: RoomSettings, password: String) -> std::io::Result<
         shutdown: stop_rx.clone(),
         settings,
         password,
+        page,
     });
     let app = Router::new()
+        .route("/", get(invite_handler))
+        .route("/logo.png", get(|| async { ([(header::CONTENT_TYPE, "image/png")], LOGO_PNG) }))
         .route("/ws", get(ws_handler))
         .route("/health", get(|| async { "ok" }))
         .with_state(hub);
@@ -99,6 +109,15 @@ pub async fn start(settings: RoomSettings, password: String) -> std::io::Result<
     });
 
     Ok(RunningServer { port, stop })
+}
+
+async fn invite_handler(headers: HeaderMap, State(hub): State<Arc<Hub>>) -> Html<String> {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
+    let stats = {
+        let peers = hub.peers.lock().await;
+        RoomStats { people: peers.len(), live: peers.values().filter(|p| p.info.sharing).count() }
+    };
+    Html(hub.page.render(host, stats))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(hub): State<Arc<Hub>>) -> impl IntoResponse {

@@ -71,6 +71,8 @@ export function mockRoom(empty = false): RoomClient {
     },
     watchAll() {},
     retry() {},
+    setViewSize() {},
+    setPip() {},
     leave() {},
     stopShare() {
       client.localStream = null;

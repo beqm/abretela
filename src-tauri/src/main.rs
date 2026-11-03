@@ -3,6 +3,8 @@
 #[macro_use]
 mod logger;
 mod capture;
+mod gpu_convert;
+mod invite_page;
 mod server;
 mod tray;
 mod tunnel;
@@ -16,7 +18,7 @@ use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 
 struct Room {
     stop: tokio::sync::watch::Sender<bool>,
-    tunnel: tokio::process::Child,
+    tunnel: Box<dyn tunnel::Tunnel>,
 }
 
 #[derive(Default)]
@@ -28,7 +30,7 @@ impl AppState {
     fn close(&self) {
         if let Some(mut room) = self.room.lock().unwrap().take() {
             let _ = room.stop.send(true);
-            let _ = room.tunnel.start_kill();
+            room.tunnel.close();
         }
     }
 }
@@ -36,7 +38,8 @@ impl AppState {
 #[derive(Serialize)]
 struct RoomInfo {
     port: u16,
-    code: String,
+    /// URL https pública da sala (o convite é ela + "#senha").
+    url: String,
     password: String,
 }
 
@@ -52,6 +55,8 @@ async fn create_room(
     state: State<'_, AppState>,
     settings: server::RoomSettings,
     password: Option<String>,
+    host_name: Option<String>,
+    lang: Option<String>,
 ) -> Result<RoomInfo, String> {
     state.close();
 
@@ -67,11 +72,15 @@ async fn create_room(
         settings.min_fps,
         settings.max_fps
     );
-    let server = server::start(settings, password.clone()).await.map_err(|e| {
+    let page = invite_page::InvitePage {
+        host_name: host_name.unwrap_or_default().trim().chars().take(32).collect(),
+        lang: lang.unwrap_or_default(),
+    };
+    let server = server::start(settings, password.clone(), page).await.map_err(|e| {
         log_error!("room", "Could not start the local room server: {e}");
         format!("falha ao iniciar servidor: {e}")
     })?;
-    let (tunnel, url) = match tunnel::start(server.port).await {
+    let tunnel = match tunnel::open(server.port).await {
         Ok(t) => t,
         Err(e) => {
             log_error!("room", "Could not open the internet tunnel: {e}");
@@ -79,14 +88,10 @@ async fn create_room(
             return Err(e);
         }
     };
+    let url = tunnel.public_url().to_string();
     log_info!("room", "Room is online at {url}");
-
-    let code = url
-        .trim_start_matches("https://")
-        .trim_end_matches(".trycloudflare.com")
-        .to_string();
     *state.room.lock().unwrap() = Some(Room { stop: server.stop, tunnel });
-    Ok(RoomInfo { port: server.port, code, password })
+    Ok(RoomInfo { port: server.port, url, password })
 }
 
 #[tauri::command]
@@ -113,8 +118,8 @@ async fn thumbnail(id: String) -> Option<String> {
 
 /// Retorna a URL do WebSocket local que entrega os frames.
 #[tauri::command]
-async fn start_capture(id: String, height: u32, fps: u32, audio: bool) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || capture::start(&id, height, fps, audio))
+async fn start_capture(id: String, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || capture::start(&id, height, fps, audio, gpu))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -142,7 +147,10 @@ fn set_tray_texts(app: AppHandle, open: String, quit: String, tooltip: String, l
 fn main() {
     tauri::Builder::default()
         // abrir o app de novo só traz a janela que já está aberta (ou na bandeja)
+        // links abretela:// que abrem uma segunda instância chegam ao app já aberto
+        // pelo deep-link (recurso "deep-link" do single-instance)
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -168,6 +176,15 @@ fn main() {
                 }
             });
             tray::setup(app.handle())?;
+            // instalado, o próprio instalador registra o abretela://; em
+            // desenvolvimento, registra aqui
+            #[cfg(debug_assertions)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(e) = app.deep_link().register_all() {
+                    log_warn!("app", "Could not register the abretela:// links: {e}");
+                }
+            }
             // iniciado junto com o Windows: começa escondido na bandeja
             if std::env::args().any(|a| a == "--minimized") {
                 if let Some(w) = app.get_webview_window("main") {

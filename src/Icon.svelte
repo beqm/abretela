@@ -36,6 +36,7 @@
     arrowLeft: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
     info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
     crown: '<path d="m2 6 4 11h12l4-11-6 5-4-7-4 7-6-5zM6 21h12"/>',
+    pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
     play: '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4V8z"/>',
   } as const;
 
