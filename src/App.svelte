@@ -11,6 +11,12 @@
   let ready = $state(false);
   let room = $state<ActiveRoom | null>(null);
 
+  if (import.meta.env.DEV && location.search.includes("mock")) {
+    import("./dev/mockRoom").then(({ mockRoom }) => {
+      room = { client: mockRoom(location.search.includes("empty")), code: "ancient-kevin-hollow-tribe", password: "482913", isHost: true };
+    });
+  }
+
   // mantém a bandeja (textos e comportamento do X) em sincronia com as preferências
   $effect(() => {
     invoke("set_tray_texts", {

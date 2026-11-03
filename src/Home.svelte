@@ -13,7 +13,7 @@
   import Segmented from "./Segmented.svelte";
   import Credits from "./Credits.svelte";
   import Icon from "./Icon.svelte";
-  import SettingsModal from "./SettingsModal.svelte";
+  import SettingsPage from "./SettingsPage.svelte";
 
   type Props = {
     onenter: (room: { client: RoomClient; code: string; password: string; isHost: boolean }) => void;
@@ -117,7 +117,7 @@
   </button>
 
   <div class="hero">
-    <img class="mascot" src="/logo.svg" alt="" />
+    <img class="mascot bob" src="/logo.svg" alt="" />
     <h1 class="wordmark">AbreTela</h1>
     <p class="tagline">{t("tagline")}</p>
   </div>
@@ -182,7 +182,7 @@
           disabled={!!busy}
         />
       {/if}
-      <button class="btn mint" disabled={!trimmedName || !code.trim() || !!busy}>{t("join")}</button>
+      <button class="btn" disabled={!trimmedName || !code.trim() || !!busy}>{t("join")}</button>
     </form>
 
     {#if busy}
@@ -197,5 +197,5 @@
 </div>
 
 {#if showSettings}
-  <SettingsModal onclose={() => (showSettings = false)} />
+  <SettingsPage onclose={() => (showSettings = false)} />
 {/if}

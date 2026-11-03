@@ -8,9 +8,8 @@
   import { t } from "./lib/prefs.svelte";
   import { sounds } from "./lib/sounds";
   import SourcePicker from "./SourcePicker.svelte";
-  import SettingsModal from "./SettingsModal.svelte";
+  import SettingsPage from "./SettingsPage.svelte";
   import Tile from "./Tile.svelte";
-  import Credits from "./Credits.svelte";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import ConfirmModal from "./ConfirmModal.svelte";
@@ -92,7 +91,8 @@
 
   // svelte-ignore state_referenced_locally
   const s = client.settings;
-  const limits = `${s.minHeight}p–${s.maxHeight}p · ${s.minFps}–${s.maxFps}fps`;
+  const heightRange = s.minHeight === s.maxHeight ? `${s.maxHeight}p` : `${s.minHeight}p–${s.maxHeight}p`;
+  const fpsRange = s.minFps === s.maxFps ? `${s.maxFps} fps` : `${s.minFps}–${s.maxFps} fps`;
 
   // indicador "ao vivo" na bandeja e na barra de tarefas
   $effect(() => {
@@ -183,7 +183,7 @@
       </button>
     </div>
 
-    <button class="btn small" class:mint={copied} title={t("copyInviteHint")} onclick={copyInvite}>
+    <button class="btn small" class:success={copied} title={t("copyInviteHint")} onclick={copyInvite}>
       <Icon name={copied ? "check" : "copy"} size={16} />
       {copied ? t("copied") : t("copyInvite")}
     </button>
@@ -246,8 +246,8 @@
             {#if p.sharing}
               <button
                 class="btn small"
-                class:primary={!p.watching && !p.isSelf}
-                class:on={p.watching}
+                class:soft={!p.watching && !p.isSelf}
+                class:ghost={p.watching || p.isSelf}
                 onclick={() => toggleWatch(p.id, p.watching)}
               >
                 {p.watching ? t("stopWatching") : p.isSelf ? t("preview") : t("watch")}
@@ -298,8 +298,54 @@
       <div class="empty">
         <img class="empty-mascot" src="/logo.svg" alt="" />
         <h2>{t("emptyTitle")}</h2>
-        <p class="muted">{t("emptyBody")}</p>
-        <p class="hint">{t("roomQuality", { limits })}{isHost ? ` · ${t("hostHint")}` : ""}</p>
+        <p class="empty-lead">{t("emptyLead")}</p>
+
+        <div class="empty-actions">
+          {#if snap.sharing}
+            <button class="action-card" onclick={() => client.watch(client.selfId)}>
+              <span class="action-icon live"><Icon name="play" size={20} /></span>
+              <span class="action-text">
+                <span class="action-title">{t("previewMine")}</span>
+                <span class="action-hint">{t("previewMineHint")}</span>
+              </span>
+            </button>
+          {:else}
+            <button class="action-card" disabled={snap.status !== "connected"} onclick={() => (picking = true)}>
+              <span class="action-icon primary"><Icon name="monitor" size={20} /></span>
+              <span class="action-text">
+                <span class="action-title">{t("openMyScreen")}</span>
+                <span class="action-hint">{t("openMyScreenHint")}</span>
+              </span>
+            </button>
+          {/if}
+          {#if snap.unwatched > 0}
+            <button class="action-card" onclick={() => client.watchAll()}>
+              <span class="action-icon live"><Icon name="tv" size={20} /></span>
+              <span class="action-text">
+                <span class="action-title">{t("watchAll")}</span>
+                <span class="action-hint">{t("liveNow", { n: snap.unwatched })}</span>
+              </span>
+            </button>
+          {:else}
+            <button class="action-card" onclick={copyInvite}>
+              <span class="action-icon mint"><Icon name={copied ? "check" : "link"} size={20} /></span>
+              <span class="action-text">
+                <span class="action-title">{copied ? t("copied") : t("emptyInviteTitle")}</span>
+                <span class="action-hint">{t("emptyInviteHint")}</span>
+              </span>
+            </button>
+          {/if}
+        </div>
+
+        <div class="room-facts">
+          <span class="fact" title={t("resolution")}><Icon name="monitor" size={14} /> {heightRange}</span>
+          <span class="fact" title={t("fps")}><Icon name="play" size={14} /> {fpsRange}</span>
+          <span class="fact"><Icon name="users" size={14} /> {t("peopleInRoom", { n: snap.peers.length })}</span>
+          {#if isHost}
+            <span class="fact host" title={t("hostHint")}><Icon name="crown" size={14} /> {t("hostBadge")}</span>
+          {/if}
+        </div>
+        <p class="empty-tip">{t("emptyTip")}</p>
       </div>
     {:else if focused}
       <div class="focus-layout">
@@ -354,8 +400,6 @@
         {/each}
       </div>
     {/if}
-
-    <div class="stage-credits"><Credits /></div>
   </main>
   </div>
 
@@ -374,7 +418,7 @@
     />
   {/if}
   {#if showSettings}
-    <SettingsModal onclose={() => (showSettings = false)} />
+    <SettingsPage onclose={() => (showSettings = false)} />
   {/if}
 
   {#if snap.status === "closed"}
