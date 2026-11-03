@@ -140,13 +140,23 @@ where
     H: GraphicsCaptureApiHandler<Error = BoxError> + Send + 'static,
     H::Flags: Send,
 {
-    let border = if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
+    let border_supported = GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false);
+    let interval_supported = GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false);
+    if fps.is_some() {
+        log_info!(
+            "capture",
+            "Windows capture features: hide yellow border = {}, frame rate limit = {}",
+            if border_supported { "yes" } else { "no (older Windows)" },
+            if interval_supported { "yes" } else { "no (older Windows)" },
+        );
+    }
+    let border = if border_supported {
         DrawBorderSettings::WithoutBorder
     } else {
         DrawBorderSettings::Default
     };
     let interval = match fps {
-        Some(fps) if GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false) => {
+        Some(fps) if interval_supported => {
             MinimumUpdateIntervalSettings::Custom(Duration::from_micros(1_000_000 / fps as u64))
         }
         _ => MinimumUpdateIntervalSettings::Default,
@@ -309,6 +319,7 @@ struct Streamer {
     flags: StreamFlags,
     resizer: fr::Resizer,
     scratch: Vec<u8>,
+    frames: u64,
 }
 
 impl GraphicsCaptureApiHandler for Streamer {
@@ -316,7 +327,7 @@ impl GraphicsCaptureApiHandler for Streamer {
     type Error = BoxError;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Self { flags: ctx.flags, resizer: fr::Resizer::new(), scratch: Vec::new() })
+        Ok(Self { flags: ctx.flags, resizer: fr::Resizer::new(), scratch: Vec::new(), frames: 0 })
     }
 
     fn on_frame_arrived(
@@ -324,13 +335,19 @@ impl GraphicsCaptureApiHandler for Streamer {
         frame: &mut Frame,
         control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
+        self.frames += 1;
         if self.flags.stop.load(Ordering::Relaxed) {
             control.stop();
             return Ok(());
         }
         let max_h = self.flags.max_h;
         let max_w = max_h * 21 / 9; // limita ultrawide
-        let (w, h, bgra) = scaled_bgra(frame, max_w, max_h, &mut self.resizer, &mut self.scratch)?;
+        let (src_w, src_h) = (frame.width(), frame.height());
+        let (w, h, bgra) = scaled_bgra(frame, max_w, max_h, &mut self.resizer, &mut self.scratch)
+            .inspect_err(|e| log_error!("capture", "Could not process a captured frame: {e}"))?;
+        if self.frames == 1 {
+            log_info!("capture", "First frame captured: {src_w}x{src_h}, sent as {w}x{h}");
+        }
 
         let mut pkt = vec![0u8; HEADER + (w * h * 3 / 2) as usize];
         pkt[0] = PKT_VIDEO;
@@ -345,6 +362,7 @@ impl GraphicsCaptureApiHandler for Streamer {
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         // janela fechada: encerra tudo (o frontend percebe pelo WebSocket)
+        log_info!("capture", "The captured window or screen went away, stopping ({} frames captured)", self.frames);
         self.flags.stop.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -398,10 +416,20 @@ fn audio_loop(
     let client = match AudioClient::new_application_loopback_client(pid, include_tree)
         .and_then(|mut c| c.initialize_client(&format, &Direction::Capture, &mode).map(|_| c))
     {
-        Ok(c) => c,
+        Ok(c) => {
+            log_info!(
+                "audio",
+                "Capturing audio {}",
+                if include_tree { "only from the shared app" } else { "from the whole PC except AbreTela" }
+            );
+            c
+        }
         Err(e) => {
             // Windows antigo sem process loopback: cai para o áudio do sistema todo
-            eprintln!("process loopback indisponível ({e}); usando loopback do sistema");
+            log_warn!(
+                "audio",
+                "This Windows can't capture audio from a single app ({e}). Falling back to all PC audio,                  so viewers may also hear other sounds from this PC"
+            );
             let device = DeviceEnumerator::new()?.get_default_device(&Direction::Render)?;
             let mut c = device.get_iaudioclient()?;
             c.initialize_client(&format, &Direction::Capture, &mode)?;
@@ -461,6 +489,19 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, Str
     let port = *PORT.get().ok_or("servidor de captura não iniciado")?;
     let target = parse_target(id).ok_or("fonte inválida")?;
     let fps = fps.clamp(5, 60);
+    let what = match &target {
+        Target::Window(w) => format!(
+            "window \"{}\" ({})",
+            w.title().unwrap_or_default(),
+            w.process_name().unwrap_or_default()
+        ),
+        Target::Monitor(m) => format!("screen {}x{}", m.width().unwrap_or(0), m.height().unwrap_or(0)),
+    };
+    log_info!(
+        "capture",
+        "Starting capture of {what} at up to {height}p {fps}fps, audio {}",
+        if audio { "on" } else { "off" }
+    );
 
     let audio_target = match &target {
         Target::Window(w) => w.process_id().ok().map(|pid| (pid, true)),
@@ -483,7 +524,8 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, Str
             fresh: fresh.clone(),
             stop: stop.clone(),
         },
-    )?;
+    )
+    .inspect_err(|e| log_error!("capture", "Windows refused to start the capture: {e}"))?;
 
     {
         let stop = stop.clone();
@@ -494,7 +536,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool) -> Result<String, Str
             let stop = stop.clone();
             thread::spawn(move || {
                 if let Err(e) = audio_loop(pid, include_tree, stop, audio_tx) {
-                    eprintln!("captura de áudio falhou: {e}");
+                    log_error!("audio", "Audio capture failed: {e}");
                 }
             });
         }
@@ -521,6 +563,7 @@ pub fn stop_if(token: Option<&str>) {
         }
     };
     if let Some(mut s) = session {
+        log_info!("capture", "Capture stopped");
         s.stop.store(true, Ordering::Relaxed);
         if let Some(control) = s.control.take() {
             let _ = control.stop();

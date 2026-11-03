@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod logger;
 mod capture;
 mod server;
 mod tray;
@@ -57,16 +59,27 @@ async fn create_room(
         .map(|p| p.trim().chars().take(32).collect::<String>())
         .filter(|p| !p.is_empty())
         .unwrap_or_else(random_password);
-    let server = server::start(settings, password.clone())
-        .await
-        .map_err(|e| format!("falha ao iniciar servidor: {e}"))?;
+    log_info!(
+        "room",
+        "Creating a room (quality limits: {}p-{}p, {}-{} fps)",
+        settings.min_height,
+        settings.max_height,
+        settings.min_fps,
+        settings.max_fps
+    );
+    let server = server::start(settings, password.clone()).await.map_err(|e| {
+        log_error!("room", "Could not start the local room server: {e}");
+        format!("falha ao iniciar servidor: {e}")
+    })?;
     let (tunnel, url) = match tunnel::start(server.port).await {
         Ok(t) => t,
         Err(e) => {
+            log_error!("room", "Could not open the internet tunnel: {e}");
             let _ = server.stop.send(true);
             return Err(e);
         }
     };
+    log_info!("room", "Room is online at {url}");
 
     let code = url
         .trim_start_matches("https://")
@@ -78,7 +91,14 @@ async fn create_room(
 
 #[tauri::command]
 fn close_room(state: State<'_, AppState>) {
+    log_info!("room", "Closed the room");
     state.close();
+}
+
+/// Linhas de log vindas do frontend.
+#[tauri::command]
+fn log(level: String, area: String, message: String) {
+    logger::write(&level, &area, &message);
 }
 
 #[tauri::command]
@@ -132,9 +152,19 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
         .setup(|app| {
+            let fallback = app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("AbreTela"));
+            logger::init(
+                fallback,
+                &format!(
+                    "AbreTela v{} started · {} · WebView2 {}",
+                    app.package_info().version,
+                    logger::windows_version(),
+                    tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
+                ),
+            );
             tauri::async_runtime::spawn(async {
                 if let Err(e) = capture::serve().await {
-                    eprintln!("servidor de captura falhou: {e}");
+                    log_error!("capture", "The local capture server stopped: {e}");
                 }
             });
             tray::setup(app.handle())?;
@@ -163,12 +193,14 @@ fn main() {
             stop_capture,
             set_close_to_tray,
             set_live,
-            set_tray_texts
+            set_tray_texts,
+            log
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o app")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                log_info!("app", "App closed");
                 capture::stop();
                 app.state::<AppState>().close();
             }

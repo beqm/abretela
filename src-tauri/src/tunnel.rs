@@ -54,6 +54,11 @@ pub async fn start(port: u16) -> Result<(Child, String), String> {
             if url.is_none() {
                 url = find_tunnel_url(&line);
             }
+            if line.contains(" ERR ") {
+                // ex.: "2026-11-02T14:03:21Z ERR failed to ..." -> só a mensagem
+                let msg = line.split_once(" ERR ").map_or(line.as_str(), |(_, m)| m);
+                log_warn!("tunnel", "cloudflared: {}", msg.trim());
+            }
             if line.contains("Registered tunnel connection") {
                 if let (Some(u), Some(tx)) = (&url, ready_tx.take()) {
                     let _ = tx.send(u.clone());

@@ -3,6 +3,7 @@
 // áudio via AudioWorklet -> MediaStreamAudioDestinationNode.
 
 import { invoke } from "@tauri-apps/api/core";
+import { describeError, log } from "./log";
 
 declare class MediaStreamTrackGenerator extends MediaStreamTrack {
   constructor(init: { kind: "video" | "audio" });
@@ -46,6 +47,9 @@ export async function startNativeCapture(
 
   let audioCtx: AudioContext | null = null;
   let player: AudioWorkletNode | null = null;
+  if (typeof MediaStreamTrackGenerator === "undefined") {
+    log.error("capture", "This WebView2 has no MediaStreamTrackGenerator, video can't be sent");
+  }
   if (audio) {
     audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     await audioCtx.audioWorklet.addModule("/audio-worklet.js");
@@ -64,6 +68,10 @@ export async function startNativeCapture(
   ws.binaryType = "arraybuffer";
   let pending = 0;
   let stopped = false;
+  let framesIn = 0;
+  let writeErrors = 0;
+  ws.onopen = () => log.info("capture", "Receiving frames from the native capture");
+  ws.onerror = () => log.error("capture", "The connection to the native capture failed");
 
   const capture: NativeCapture = { stream: new MediaStream(tracks), stop, onEnded: null };
 
@@ -73,17 +81,29 @@ export async function startNativeCapture(
     if (kind === PKT_VIDEO) {
       if (pending > 1) return; // encoder atrasado: descarta
       const dv = new DataView(buf);
-      const frame = new VideoFrame(new Uint8Array(buf, HEADER), {
-        format: "I420",
-        codedWidth: dv.getUint16(2, true),
-        codedHeight: dv.getUint16(4, true),
-        timestamp: Math.round(performance.now() * 1000),
-        colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false },
-      });
+      let frame: VideoFrame;
+      try {
+        frame = new VideoFrame(new Uint8Array(buf, HEADER), {
+          format: "I420",
+          codedWidth: dv.getUint16(2, true),
+          codedHeight: dv.getUint16(4, true),
+          timestamp: Math.round(performance.now() * 1000),
+          colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false },
+        });
+      } catch (e) {
+        if (writeErrors++ < 3) log.error("capture", `Could not create a video frame: ${describeError(e)}`);
+        return;
+      }
+      if (++framesIn === 1) {
+        log.info("capture", `First video frame reached the app (${frame.codedWidth}x${frame.codedHeight})`);
+      }
       pending++;
       writer
         .write(frame)
-        .catch(() => frame.close())
+        .catch((e) => {
+          frame.close();
+          if (writeErrors++ < 3) log.error("capture", `Could not hand a video frame to WebRTC: ${describeError(e)}`);
+        })
         .finally(() => pending--);
     } else if (kind === PKT_AUDIO && player) {
       player.port.postMessage(new Float32Array(buf, HEADER), [buf]);
@@ -91,6 +111,7 @@ export async function startNativeCapture(
   };
   ws.onclose = () => {
     if (stopped) return;
+    log.warn("capture", `The native capture ended on its own after ${framesIn} frames`);
     stop();
     capture.onEnded?.();
   };

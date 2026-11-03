@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { makeInvite, type RemoteView, type RoomClient } from "./lib/room";
   import { startNativeCapture, type Source } from "./lib/capture";
+  import { describeError, log } from "./lib/log";
   import type { Quality } from "./lib/quality";
   import { t } from "./lib/prefs.svelte";
   import { sounds } from "./lib/sounds";
@@ -140,6 +141,7 @@
           : pick.source.app || pick.source.title;
       client.startShare(capture, pick.quality, title);
     } catch (e) {
+      log.error("sharing", `Could not start sharing: ${describeError(e)}`);
       notice = t("shareFailed", { e: String(e) });
     } finally {
       picking = false;

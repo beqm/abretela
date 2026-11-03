@@ -1,7 +1,10 @@
 import { mount } from "svelte";
 import "@fontsource-variable/nunito";
 import App from "./App.svelte";
+import { installGlobalLogging } from "./lib/log";
 import "./styles.css";
+
+installGlobalLogging();
 
 // Sem menu do navegador (Inspecionar, Recarregar...): só nos campos de texto,
 // para dar para colar o convite.
