@@ -1,0 +1,175 @@
+/* Base do app inteiro: reset, elementos soltos, utilitários e animações
+   compartilhadas. Estilos de um componente só ficam no <style> dele. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Nunito Variable", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input {
+  height: 38px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 0 12px;
+  outline: none;
+  user-select: text;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+input:disabled {
+  opacity: 0.6;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 17px;
+}
+
+p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* mascote (início e boas-vindas) */
+
+.mascot {
+  width: 88px;
+  height: 88px;
+}
+
+.mascot.bob {
+  animation: bob 2.8s ease-in-out infinite;
+}
+
+/* janelas baixas: mascote menor */
+@media (max-height: 700px) {
+  .mascot {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+select {
+  height: 38px;
+  padding: 0 32px 0 12px;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a9998b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 12px center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+select:hover {
+  border-color: var(--muted);
+}
+
+select:focus-visible {
+  border-color: var(--primary);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+/* foco pelo teclado */
+button:focus {
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,8 +1,11 @@
 import { mount } from "svelte";
 import "@fontsource-variable/nunito";
+// estilos globais antes dos componentes (que trazem o próprio <style>)
+import "../styles/tokens.css";
+import "../styles/base.css";
+import "../styles/controls.css";
 import App from "./App.svelte";
-import { installGlobalLogging } from "./lib/log";
-import "./styles.css";
+import { installGlobalLogging } from "../lib/log";
 
 installGlobalLogging();
 

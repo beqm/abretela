@@ -1,17 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[macro_use]
-mod logger;
+mod logging;
+mod app;
 mod capture;
-mod gpu_convert;
-mod invite_page;
-mod server;
-mod startup;
-mod tray;
+mod room;
 mod tunnel;
 #[cfg(test)]
 mod e2e_test;
 
+use app::{startup, tray};
+use room::{invite_page, server};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -104,7 +103,7 @@ fn close_room(state: State<'_, AppState>) {
 /// Linhas de log vindas do frontend.
 #[tauri::command]
 fn log(level: String, area: String, message: String) {
-    logger::write(&level, &area, &message);
+    logging::write(&level, &area, &message);
 }
 
 #[tauri::command]
@@ -162,12 +161,12 @@ fn main() {
         .manage(AppState::default())
         .setup(|app| {
             let fallback = app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("AbreTela"));
-            logger::init(
+            logging::init(
                 fallback,
                 &format!(
                     "AbreTela v{} started · {} · WebView2 {}",
                     app.package_info().version,
-                    logger::windows_version(),
+                    logging::windows_version(),
                     tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
                 ),
             );

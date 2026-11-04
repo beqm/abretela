@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { findUpdate, installUpdate } from "./lib/update";
-  import { describeError, log } from "./lib/log";
+  import { findUpdate, installUpdate } from "../lib/update";
+  import { describeError, log } from "../lib/log";
 
   /** Baixando uma atualização: mostra a barra (fora isso, só o mascote). */
   let downloading = $state(false);

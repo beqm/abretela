@@ -38,3 +38,43 @@
     </div>
   </div>
 </div>
+
+<style>
+  .confirm-modal {
+    width: min(380px, 100%);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+
+  .confirm-mascot {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 6px;
+    animation: wobble 2.4s ease-in-out infinite;
+  }
+
+  @keyframes wobble {
+    0%,
+    100% {
+      transform: rotate(-5deg);
+    }
+    50% {
+      transform: rotate(5deg);
+    }
+  }
+
+  .confirm-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    width: 100%;
+  }
+
+  .confirm-actions .btn {
+    flex: 1;
+  }
+</style>

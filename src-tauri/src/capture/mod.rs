@@ -28,7 +28,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use crate::gpu_convert::GpuConverter;
+mod gpu_convert;
+use gpu_convert::GpuConverter;
 use windows_capture::{
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     frame::Frame,

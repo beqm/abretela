@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { prefs, t } from "./lib/prefs.svelte";
+  import { prefs, t } from "../../lib/prefs.svelte";
 
   let name = $state("");
   const trimmed = $derived(name.trim());
@@ -22,3 +22,40 @@
   </form>
   <p class="hint">{t("welcomeHint")}</p>
 </div>
+
+<style>
+  .welcome {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: safe center;
+    gap: 8px;
+    padding: 24px 16px;
+    text-align: center;
+    overflow-y: auto;
+  }
+
+  .welcome h1 {
+    font-size: 26px;
+    margin-top: 8px;
+  }
+
+  .welcome-form {
+    width: min(340px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .welcome-form input {
+    height: 44px;
+    font-size: 16px;
+    text-align: center;
+  }
+
+  .welcome .hint {
+    margin-top: 4px;
+  }
+</style>

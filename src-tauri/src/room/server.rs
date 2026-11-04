@@ -25,9 +25,9 @@ use std::{
 };
 use tokio::sync::{mpsc, watch, Mutex};
 
-use crate::invite_page::{InvitePage, RoomStats};
+use super::invite_page::{InvitePage, RoomStats};
 
-const LOGO_PNG: &[u8] = include_bytes!("../icons/128x128@2x.png");
+const LOGO_PNG: &[u8] = include_bytes!("../../icons/128x128@2x.png");
 
 #[derive(Clone, Serialize)]
 struct PeerInfo {

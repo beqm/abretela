@@ -18,3 +18,14 @@
   style:height="{size}px"
   style:font-size="{size * 0.45}px">{name.slice(0, 1).toUpperCase()}</span
 >
+
+<style>
+  .avatar {
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+  }
+</style>

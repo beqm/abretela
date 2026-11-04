@@ -2,7 +2,7 @@
 
 import { mount } from "svelte";
 import Splash from "./Splash.svelte";
-import { installGlobalLogging } from "./lib/log";
+import { installGlobalLogging } from "../lib/log";
 
 installGlobalLogging({ describeGpu: false });
 document.addEventListener("contextmenu", (e) => e.preventDefault());

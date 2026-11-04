@@ -1,0 +1,89 @@
+/* AbreTela — o mascote e o laranja são a identidade; o resto fica neutro e
+   discreto para não competir com o conteúdo (as telas transmitidas). */
+
+:root {
+  --bg: #fbf6f0;
+  --surface: #fffdfa;
+  --surface-2: #f6ede4;
+  --surface-3: #eee1d4;
+  --line: #ecdfd1;
+  --line-strong: #dfcdbb;
+  --text: #2a1d14;
+  --muted: #7b6757;
+  --primary: #f26a1f;
+  --primary-hover: #e05d14;
+  --primary-soft: #fee6d6;
+  --primary-text: #c4520f;
+  --mint: #1fb8a4;
+  --mint-soft: #d9f5f0;
+  --mint-text: #11806f;
+  --sun-soft: #fdf0cf;
+  --sun-text: #94650a;
+  --live: #ef3e4a;
+  --live-soft: #fde2e3;
+  --danger: #dc3a45;
+  --danger-hover: #c62f3a;
+  --danger-soft: #fbe3e4;
+  --warn-bg: #fdf0cf;
+  --warn-text: #7a5300;
+  --shadow-sm: 0 1px 2px rgba(60, 35, 15, 0.07);
+  --shadow: 0 1px 2px rgba(60, 35, 15, 0.05), 0 10px 28px rgba(60, 35, 15, 0.09);
+  --shadow-lg: 0 24px 64px rgba(20, 10, 0, 0.28);
+  --stage: #120d0a;
+  --r-sm: 8px;
+  --r: 10px;
+  --r-lg: 14px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17120f;
+    --surface: #201915;
+    --surface-2: #2a221d;
+    --surface-3: #362c25;
+    --line: #31271f;
+    --line-strong: #46392f;
+    --text: #f8efe6;
+    --muted: #ab9b8c;
+    --primary-soft: #42271a;
+    --primary-text: #ff9c5e;
+    --mint-soft: #15342f;
+    --mint-text: #4fd8c3;
+    --sun-soft: #3b2e12;
+    --sun-text: #f7c64a;
+    --live-soft: #42191e;
+    --danger-soft: #42191e;
+    --warn-bg: #3b2e12;
+    --warn-text: #f7c64a;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --stage: #0d0907;
+    color-scheme: dark;
+}
+}
+
+:root[data-theme="dark"] {
+  --bg: #17120f;
+  --surface: #201915;
+  --surface-2: #2a221d;
+  --surface-3: #362c25;
+  --line: #31271f;
+  --line-strong: #46392f;
+  --text: #f8efe6;
+  --muted: #ab9b8c;
+  --primary-soft: #42271a;
+  --primary-text: #ff9c5e;
+  --mint-soft: #15342f;
+  --mint-text: #4fd8c3;
+  --sun-soft: #3b2e12;
+  --sun-text: #f7c64a;
+  --live-soft: #42191e;
+  --danger-soft: #42191e;
+  --warn-bg: #3b2e12;
+  --warn-text: #f7c64a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --stage: #0d0907;
+  color-scheme: dark;
+}

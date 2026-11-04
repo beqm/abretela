@@ -232,15 +232,15 @@ fn reg_dword(name: &str) -> Option<u32> {
 
 #[macro_export]
 macro_rules! log_info {
-    ($area:expr, $($arg:tt)*) => { $crate::logger::write("info", $area, &format!($($arg)*)) };
+    ($area:expr, $($arg:tt)*) => { $crate::logging::write("info", $area, &format!($($arg)*)) };
 }
 
 #[macro_export]
 macro_rules! log_warn {
-    ($area:expr, $($arg:tt)*) => { $crate::logger::write("warn", $area, &format!($($arg)*)) };
+    ($area:expr, $($arg:tt)*) => { $crate::logging::write("warn", $area, &format!($($arg)*)) };
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($area:expr, $($arg:tt)*) => { $crate::logger::write("error", $area, &format!($($arg)*)) };
+    ($area:expr, $($arg:tt)*) => { $crate::logging::write("error", $area, &format!($($arg)*)) };
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { RoomClient, WrongPasswordError, parseInvite } from "./lib/room";
+  import { RoomClient, WrongPasswordError, parseInvite } from "../../lib/room";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,
@@ -9,12 +9,12 @@
     loadJson,
     saveJson,
     type RoomSettings,
-  } from "./lib/quality";
-  import { prefs, t } from "./lib/prefs.svelte";
-  import Credits from "./Credits.svelte";
-  import Icon from "./Icon.svelte";
-  import Avatar from "./Avatar.svelte";
-  import SettingsPage from "./SettingsPage.svelte";
+  } from "../../lib/quality";
+  import { prefs, t } from "../../lib/prefs.svelte";
+  import Credits from "../../ui/Credits.svelte";
+  import Icon from "../../ui/Icon.svelte";
+  import Avatar from "../../ui/Avatar.svelte";
+  import SettingsPage from "../settings/SettingsPage.svelte";
 
   type Props = {
     onenter: (room: { client: RoomClient; room: string; password: string; isHost: boolean }) => void;
@@ -249,3 +249,185 @@
 {#if showSettings}
   <SettingsPage onclose={() => (showSettings = false)} />
 {/if}
+
+<style>
+  .home {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* "safe": se o conteúdo não couber, alinha no topo e deixa rolar */
+    justify-content: safe center;
+    gap: 28px;
+    padding: 32px 16px 20px;
+    overflow-y: auto;
+  }
+
+  .home-settings {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1;
+  }
+
+  .hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+  }
+
+  .wordmark {
+    color: var(--primary);
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.025em;
+  }
+
+  .tagline {
+    color: var(--muted);
+    max-width: 340px;
+    font-size: 14px;
+  }
+
+  .home-card {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .create {
+    display: flex;
+    gap: 8px;
+  }
+
+  .options-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -6px 0 2px -6px;
+  }
+
+  .options-head h2 {
+    font-size: 16px;
+  }
+
+  .range-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .range-row {
+    display: grid;
+    grid-template-columns: 84px 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .range-label {
+    font-weight: 600;
+  }
+
+  .range-to {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .options-summary {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: -6px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .options-summary:hover {
+    color: var(--text);
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .join {
+    display: flex;
+    gap: 8px;
+  }
+
+  .join input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .join input.password {
+    flex: 0 0 96px;
+  }
+
+  .home-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .home-identity strong {
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .home-identity .link-btn {
+    margin-left: auto;
+  }
+
+  /* janelas baixas: tela inicial mais compacta */
+  @media (max-height: 700px) {
+    .home {
+      gap: 18px;
+      padding: 16px;
+    }
+    .wordmark {
+      font-size: 26px;
+    }
+    .tagline {
+      display: none;
+    }
+    .home-card {
+      padding: 18px;
+      gap: 12px;
+    }
+  }
+
+  /* janela no tamanho mínimo: os créditos ficam só em Configurações > Sobre */
+  @media (max-height: 600px) {
+    .home > :global(.credits) {
+      display: none;
+    }
+  }
+</style>

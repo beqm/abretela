@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { t } from "./lib/prefs.svelte";
+  import { t } from "../lib/prefs.svelte";
 
   const REPO = "https://github.com/beqm/abretela";
   const AUTHOR = "https://github.com/beqm";
@@ -25,3 +25,24 @@
   <span>·</span>
   <a href={REPO} onclick={open(REPO)}>GitHub</a>
 </div>
+
+<style>
+  .credits {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .credits a {
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .credits a:hover {
+    color: var(--primary-text);
+  }
+</style>

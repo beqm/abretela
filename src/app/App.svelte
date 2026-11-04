@@ -2,12 +2,12 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-  import Home from "./Home.svelte";
-  import Room from "./Room.svelte";
-  import Welcome from "./Welcome.svelte";
-  import { parseInvite, roomLabel, type RoomClient } from "./lib/room";
-  import { log } from "./lib/log";
-  import { prefs, t } from "./lib/prefs.svelte";
+  import Home from "../features/home/Home.svelte";
+  import Room from "../features/room/Room.svelte";
+  import Welcome from "../features/home/Welcome.svelte";
+  import { parseInvite, roomLabel, type RoomClient } from "../lib/room";
+  import { log } from "../lib/log";
+  import { prefs, t } from "../lib/prefs.svelte";
 
   type ActiveRoom = { client: RoomClient; room: string; password: string; isHost: boolean };
 
@@ -16,7 +16,7 @@
   let link = $state<string | null>(null);
 
   if (import.meta.env.DEV && location.search.includes("mock")) {
-    import("./dev/mockRoom").then(({ mockRoom }) => {
+    import("../dev/mockRoom").then(({ mockRoom }) => {
       room = {
         client: mockRoom(location.search.includes("empty")),
         room: "https://ancient-kevin-hollow-tribe.trycloudflare.com",

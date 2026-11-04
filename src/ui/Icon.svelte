@@ -61,3 +61,10 @@
 >
   {@html ICONS[name]}
 </svg>
+
+<style>
+  .icon {
+    flex-shrink: 0;
+    display: block;
+  }
+</style>

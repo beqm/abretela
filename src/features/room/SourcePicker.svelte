@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getThumbnail, listSources, type Source } from "./lib/capture";
+  import { getThumbnail, listSources, type Source } from "../../lib/capture";
   import {
     allowedFps,
     allowedHeights,
@@ -9,10 +9,10 @@
     saveJson,
     type Quality,
     type RoomSettings,
-  } from "./lib/quality";
-  import { t } from "./lib/prefs.svelte";
-  import Segmented from "./Segmented.svelte";
-  import Icon from "./Icon.svelte";
+  } from "../../lib/quality";
+  import { t } from "../../lib/prefs.svelte";
+  import Segmented from "../../ui/Segmented.svelte";
+  import Icon from "../../ui/Icon.svelte";
 
   type Props = {
     settings: RoomSettings;
@@ -142,3 +142,136 @@
     </footer>
   </div>
 </div>
+
+<style>
+  .modal-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .picker {
+    width: min(920px, 100%);
+    height: min(660px, 100%);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .picker .modal-head {
+    padding: 12px 12px 12px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sources {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    align-content: start;
+  }
+
+  .picker-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    padding: 40px;
+  }
+
+  .source {
+    background: none;
+    border: none;
+    border-radius: var(--r);
+    padding: 6px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    transition: background 0.12s;
+  }
+
+  .source:hover {
+    background: var(--surface-2);
+  }
+
+  .source.selected {
+    background: var(--primary-soft);
+  }
+
+  .source.selected .thumb {
+    outline-color: var(--primary);
+  }
+
+  .thumb {
+    aspect-ratio: 16 / 9;
+    background: var(--stage);
+    border-radius: var(--r-sm);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    color: #fff;
+    margin-bottom: 6px;
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    transition: outline-color 0.12s;
+  }
+
+  .thumb .spinner {
+    border-color: rgba(255, 255, 255, 0.15);
+    border-top-color: rgba(255, 255, 255, 0.7);
+  }
+
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .source-title {
+    font-weight: 700;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 2px;
+  }
+
+  .source-app {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 2px;
+  }
+
+  .picker-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .picker-foot .opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .opt-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+</style>

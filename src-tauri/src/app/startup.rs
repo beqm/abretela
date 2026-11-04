@@ -107,7 +107,7 @@ fn finish(app: &AppHandle) {
     }
     log_info!("app", "Startup finished{}", if state.minimized { " (staying in the tray)" } else { ", showing the app" });
     if !state.minimized {
-        crate::tray::show_main(app);
+        super::tray::show_main(app);
     }
     if let Some(splash) = app.get_webview_window(SPLASH) {
         let _ = splash.close();
