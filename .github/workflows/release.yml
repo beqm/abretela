@@ -30,6 +30,26 @@ jobs:
 
       - run: npm run fetch-cloudflared
 
+      # texto da Release: a seção desta versão no CHANGELOG.md + como instalar
+      - name: Release notes
+        id: notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk -v v="[$version]" '
+            /^## \[/ { if (found) exit; if (index($0, v)) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md)
+          {
+            echo "body<<END_OF_NOTES"
+            echo "$notes"
+            echo
+            echo "---"
+            echo "Baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app."
+            echo "END_OF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,8 +58,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: AbreTela ${{ github.ref_name }}
-          releaseBody: |
-            Baixe o **AbreTela_x.y.z_x64-setup.exe** abaixo e instale.
-            Quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
