@@ -4,82 +4,56 @@
 
 <h1 align="center">AbreTela</h1>
 
-<p align="center">Abra sua tela para os amigos: jogos, apps ou a tela inteira, com áudio.</p>
+<p align="center">Compartilhamento de tela entre amigos, com áudio, para Windows.</p>
 
 ---
 
-O AbreTela é um app para Windows feito para assistir à tela dos amigos, todo mundo ao mesmo tempo. Uma pessoa cria a sala, manda o link e cada um abre a tela que quiser. Não tem conta, cadastro nem servidor para configurar.
+O AbreTela permite que um grupo de pessoas transmita e assista às telas umas das outras ao mesmo tempo: jogos, aplicativos ou a tela inteira, com o áudio junto. Uma pessoa cria a sala e envia o link de convite; as demais entram com um clique. Não é necessário criar conta nem configurar servidor ou roteador.
 
-## Baixar
+## Instalação
 
-1. Vá em **[Releases](https://github.com/beqm/abretela/releases/latest)** e baixe o `AbreTela_..._x64-setup.exe`.
-2. Abra o instalador. Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações** e depois em **Executar assim mesmo** (isso aparece porque o app ainda não tem assinatura digital paga).
-3. Pronto. O app se atualiza sozinho quando sai uma versão nova.
+1. Acesse a página de **[Releases](https://github.com/beqm/abretela/releases/latest)** e baixe o arquivo `AbreTela_..._x64-setup.exe`.
+2. Execute o instalador.
+3. As atualizações seguintes são instaladas automaticamente ao abrir o app.
 
-Funciona no Windows 10 e 11.
+Compatível com Windows 10 e Windows 11.
+
+> [!WARNING]
+> **Aviso do Windows na instalação**
+>
+> Ao abrir o instalador, o Windows pode exibir a mensagem *"O Windows protegeu o computador"*. Isso acontece porque o instalador ainda não possui assinatura digital, e não indica um problema no arquivo. Para continuar, clique em **Mais informações** e depois em **Executar assim mesmo**.
 
 ## Como usar
 
-**Criar uma sala**
-Digite seu nome e clique em **Criar sala**. Em alguns segundos a sala está no ar.
+1. **Primeira abertura:** informe o nome que será exibido para os outros participantes. Ele pode ser alterado depois em **Configurações > Geral > Perfil**.
+2. **Criar uma sala:** clique em **Criar sala**. Quem cria a sala é o anfitrião.
+3. **Convidar:** clique em **Copiar convite** e envie o link por Discord, WhatsApp ou qualquer outro canal. O link já inclui a senha da sala e abre o AbreTela diretamente nela. Quem ainda não tem o app encontra o botão de download na própria página do convite.
+4. **Transmitir:** clique em **Abrir minha tela** e escolha um aplicativo ou uma tela inteira. Ao escolher um aplicativo, apenas o áudio dele é transmitido. Durante a transmissão, **Trocar tela** muda o conteúdo sem desconectar quem está assistindo.
+5. **Assistir:** clique em **Assistir** ao lado de quem está ao vivo. É possível acompanhar várias transmissões em grade, dar foco a uma delas, abrir em tela cheia ou em uma janela flutuante que fica sobre outros aplicativos. Ao passar o mouse sobre um participante, é exibida uma prévia da tela dele.
 
-**Chamar os amigos**
-Clique em **Copiar convite** e mande o link no Discord, WhatsApp ou onde quiser. Quem clicar no link abre o AbreTela direto na sala (quem ainda não tem o app vê o botão de download). O link já leva a senha.
+### Recomendações
 
-**Abrir sua tela**
-Clique em **Abrir minha tela** e escolha um aplicativo (por exemplo, o jogo) ou uma tela inteira. O áudio vai junto: ao escolher um app, só o som dele é transmitido.
-
-**Assistir**
-Clique em **Assistir** ao lado de quem está ao vivo. Dá para ver várias telas em grade, clicar em uma para dar foco, dar dois cliques para tela cheia ou abrir numa **janela flutuante** que fica por cima do jogo.
-
-### Dicas
-
-- **Quem cria a sala é o anfitrião**: a sala fica aberta enquanto o app dele estiver aberto. Se ele sair, a sala acaba para todos.
-- Nas opções da sala (o botão ao lado de **Criar sala**) dá para definir uma senha própria e a qualidade permitida.
-- O app se ajusta para pesar pouco no seu jogo: quem te vê em miniatura recebe uma versão menor da sua tela, e quem está com o AbreTela minimizado não recebe vídeo.
-- Se a sua transmissão ficar com tela preta, desligue **Aceleração de hardware** em Configurações.
+- A sala permanece disponível enquanto o app do anfitrião estiver aberto. Se o anfitrião sair, a sala é encerrada para todos.
+- As opções da sala (botão ao lado de **Criar sala**) permitem definir uma senha própria e os limites de qualidade da transmissão.
+- Para reduzir o impacto em jogos, o app envia uma versão menor da tela para quem a vê em miniatura e não envia vídeo para quem está com o AbreTela minimizado.
+- Se a transmissão aparecer com a tela preta, desative **Aceleração de hardware** em **Configurações > Geral**.
 
 ## Como a conexão funciona
 
-Ninguém precisa abrir portas no roteador nem configurar nada. Por baixo, são duas partes:
+O AbreTela não depende de servidores próprios. A conexão é formada por duas partes:
 
-1. **O ponto de encontro (túnel da Cloudflare).** Ao criar a sala, o app liga um pequeno servidor no seu PC e o publica na internet com um [túnel gratuito da Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (o `cloudflared`, que já vem dentro do app). Esse túnel gera um endereço `https://...trycloudflare.com` aleatório, que é o link do convite. Por ele passam só mensagens pequenas: quem entrou, quem está ao vivo e os dados para os PCs se encontrarem.
-2. **O vídeo e o áudio vão direto entre os PCs (WebRTC).** Depois que dois PCs se encontram pelo túnel, a transmissão vai de um para o outro, sem passar pela Cloudflare nem por nenhum servidor do AbreTela.
+1. **Túnel da Cloudflare (ponto de encontro).** Ao criar uma sala, o app inicia um pequeno servidor no computador do anfitrião e o publica na internet por meio de um [túnel gratuito da Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (`cloudflared`, incluído no app). O túnel gera um endereço aleatório no formato `https://...trycloudflare.com`, que é o link do convite. Por ele trafegam apenas mensagens de controle: quem entrou na sala, quem está ao vivo e os dados necessários para os computadores se conectarem.
+2. **Conexão direta (WebRTC).** O vídeo e o áudio são enviados diretamente entre os computadores dos participantes, sem passar pela Cloudflare nem por qualquer servidor do AbreTela.
 
-Algumas consequências disso:
-
-- **A senha nunca sai do link.** Ela fica depois do `#`, e essa parte do endereço não é enviada a nenhum servidor.
-- **O link só funciona enquanto a sala está aberta.** Cada sala nova tem um endereço novo.
-- **Quem transmite usa upload para cada pessoa que assiste.** Uma tela em 1080p 60fps usa uns 7 Mbps por pessoa, por isso o app reduz a qualidade para quem está te vendo pequeno.
-- Em redes muito fechadas (algumas redes de empresa ou faculdade), os PCs podem não conseguir se conectar direto. Nesses casos a sala abre, mas a tela fica em "Conectando...".
-
-## Para desenvolvedores
-
-Feito com [Tauri 2](https://tauri.app) (Rust) e Svelte 5 + TypeScript.
-
-Requisitos: Node.js, Rust (toolchain MSVC) e Visual Studio Build Tools.
-
-```sh
-npm install
-npm run fetch-cloudflared   # baixa o cloudflared para src-tauri/binaries/
-npm run tauri dev           # modo desenvolvimento
-npm run tauri build         # gera o instalador em src-tauri/target/release/bundle/nsis/
-```
-
-Com `npm run dev`, a URL `http://localhost:1420/?mock` abre uma sala falsa no navegador para mexer na interface sem Tauri.
-
-### Onde fica cada coisa
-
-| Arquivo | O que faz |
-|---|---|
-| `src-tauri/src/server.rs` | Servidor da sala: sinalização e a página do convite |
-| `src-tauri/src/invite_page.rs` | Página que o link do convite abre no navegador |
-| `src-tauri/src/tunnel/` | Túnel para a internet. `mod.rs` é o contrato; `cloudflare.rs` é a implementação atual |
-| `src-tauri/src/capture.rs` | Captura nativa de vídeo (Windows Graphics Capture) e áudio por app (WASAPI) |
-| `src-tauri/src/gpu_convert.rs` | Redimensiona e converte a captura na placa de vídeo (D3D11) |
-| `src/lib/room.ts` | Cliente da sala, conexões WebRTC e leitura de convites |
-| `src/lib/capture.ts` | Transforma os frames nativos em vídeo e áudio para o WebRTC |
+> [!IMPORTANT]
+> **Pontos de atenção sobre o túnel e a conexão**
+>
+> - **O link só funciona enquanto a sala estiver aberta.** Cada nova sala recebe um endereço diferente, e links antigos deixam de funcionar.
+> - **A senha não é enviada a nenhum servidor.** Ela fica após o `#` do link, parte do endereço que os navegadores não transmitem.
+> - **O túnel é um serviço gratuito da Cloudflare**, sem garantia de disponibilidade. Em caso de instabilidade do serviço, a criação de salas pode falhar temporariamente.
+> - **Quem transmite consome upload para cada pessoa que assiste.** Uma transmissão em 1080p a 60 fps usa cerca de 7 Mbps por espectador.
+> - **Redes muito restritas** (algumas redes corporativas ou universitárias) podem impedir a conexão direta entre os computadores. Nesses casos, a sala abre normalmente, mas a transmissão permanece em "Conectando...".
 
 ## Licença
 
-[MIT](LICENSE)
+Distribuído sob a licença [MIT](LICENSE).
