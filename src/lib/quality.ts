@@ -39,6 +39,16 @@ export const allowedHeights = (s: RoomSettings) =>
 export const allowedFps = (s: RoomSettings) =>
   FPS_OPTIONS.filter((f) => f >= s.minFps && f <= s.maxFps);
 
+/**
+ * Menor altura da lista que dá conta de um vídeo mostrado em `width` x
+ * `height` pixels da tela (com 10% de folga).
+ */
+export function heightTier(width: number, height: number, dpr = globalThis.devicePixelRatio ?? 1): number {
+  // object-fit: contain; o que conta é a altura visível
+  const visible = Math.min(height, (width * 9) / 16) * dpr;
+  return HEIGHTS.find((h) => h >= visible * 0.9) ?? HEIGHTS[HEIGHTS.length - 1];
+}
+
 /** Garante que uma qualidade esteja dentro dos limites da sala. */
 export function clampQuality(q: Quality, s: RoomSettings): Quality {
   const heights = allowedHeights(s);

@@ -106,6 +106,13 @@
     }
   });
 
+  // os tipos do Svelte não conhecem onleavepictureinpicture no <video>
+  onMount(() => {
+    const video = pipVideo;
+    video.addEventListener("leavepictureinpicture", onLeavePip);
+    return () => video.removeEventListener("leavepictureinpicture", onLeavePip);
+  });
+
   onDestroy(() => {
     if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
   });
@@ -540,7 +547,7 @@
   </div>
 
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video class="pip-source" bind:this={pipVideo} muted playsinline onleavepictureinpicture={onLeavePip}></video>
+  <video class="pip-source" bind:this={pipVideo} muted playsinline></video>
 
   {#if pickMode}
     <SourcePicker

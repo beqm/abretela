@@ -1,0 +1,46 @@
+# Em todo push e pull request: tipos (tsc + svelte-check), testes do
+# frontend (Vitest) e do Rust (cargo test). Roda no Windows porque a captura
+# usa APIs do Windows.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run check
+
+      - run: npm test
+
+      # o cargo precisa do frontend compilado e do cloudflared para montar o app
+      - run: npm run build
+
+      - run: npm run fetch-cloudflared
+
+      - run: cargo test
+        working-directory: src-tauri

@@ -6,7 +6,7 @@ import type { NativeCapture } from "./capture";
 import { describeError, log } from "./log";
 import {
   DEFAULT_SETTINGS,
-  HEIGHTS,
+  heightTier,
   qualityLabel,
   videoBitrate,
   type Quality,
@@ -261,12 +261,6 @@ export async function snapshot(stream: MediaStream, width = 320): Promise<string
     video.pause();
     video.srcObject = null;
   }
-}
-
-function heightTier(width: number, height: number): number {
-  // object-fit: contain; o que conta é a altura visível
-  const visible = Math.min(height, (width * 9) / 16) * devicePixelRatio;
-  return HEIGHTS.find((h) => h >= visible * 0.9) ?? HEIGHTS[HEIGHTS.length - 1];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

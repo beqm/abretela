@@ -35,3 +35,7 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 strip = true
 lto = true
 codegen-units = 1
+
+[dev-dependencies]
+# cliente WebSocket para o teste de integração do servidor da sala
+tokio-tungstenite = "0.29"

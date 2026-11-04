@@ -232,4 +232,15 @@ async fn handle_socket(socket: WebSocket, hub: Arc<Hub>) {
     }
     drop(tx);
     let _ = writer.await;
+    // Termina o fechamento lendo o que ainda chegar (ex.: o pong do primeiro
+    // ping). Soltar o socket com dados não lidos faz o Windows mandar um RST,
+    // e o outro lado pode perder a última mensagem (como a de senha errada).
+    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(Ok(msg)) = stream.next().await {
+            if matches!(msg, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await;
 }
