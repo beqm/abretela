@@ -4,7 +4,7 @@
   import { makeInvite, parseInvite, roomLabel } from "../../lib/invite";
   import type { RoomClient } from "../../lib/room";
   import type { RemoteView } from "../../lib/transport/types";
-  import { startNativeCapture, type Source } from "../../lib/capture";
+  import { startNativeCapture, type Source } from "../../lib/capture/native";
   import { describeError, log } from "../../lib/log";
   import type { Quality } from "../../lib/quality";
   import { prefs, t } from "../../lib/prefs.svelte";

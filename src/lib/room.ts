@@ -1,7 +1,7 @@
 // Cliente da sala: junta as peças (sinalização, transporte de mídia, prévias
 // e política de qualidade) e expõe o estado da sala para a interface.
 
-import type { NativeCapture } from "./capture";
+import type { NativeCapture } from "./capture/native";
 import { describeError, log } from "./log";
 import { DEFAULT_SETTINGS, heightTier, qualityLabel, viewerHeight, type Quality, type RoomSettings } from "./quality";
 import { Signaling, type PeerInfo, type ServerMsg, type SignalData } from "./signaling";

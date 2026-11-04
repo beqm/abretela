@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoomClient } from "./room";
 import { WrongPasswordError } from "./signaling";
 import { FakePC, installFakeRtc, settle, stream } from "./testing/fakeRtc";
-import type { NativeCapture } from "./capture";
+import type { NativeCapture } from "./capture/native";
 
 vi.mock("./log", () => ({
   log: { info: () => {}, warn: () => {}, error: () => {} },

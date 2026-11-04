@@ -1,0 +1,47 @@
+{
+  "$comment": "Formato dos pacotes da captura nativa. Conferido pelos testes do Rust (capture/packet.rs) e do app (capture/packet.test.ts).",
+  "header": 16,
+  "kind": {
+    "video": 1,
+    "audio": 2
+  },
+  "format": {
+    "i420": 0,
+    "nv12": 1
+  },
+  "examples": [
+    {
+      "name": "video NV12 1280x720",
+      "kind": 1,
+      "format": 1,
+      "width": 1280,
+      "height": 720,
+      "payload": 1382400,
+      "header_hex": "01010005d00200000000000000000000"
+    },
+    {
+      "name": "video I420 640x360",
+      "kind": 1,
+      "format": 0,
+      "width": 640,
+      "height": 360,
+      "payload": 345600,
+      "header_hex": "01008002680100000000000000000000"
+    },
+    {
+      "name": "video NV12 1920x1080",
+      "kind": 1,
+      "format": 1,
+      "width": 1920,
+      "height": 1080,
+      "payload": 3110400,
+      "header_hex": "01018007380400000000000000000000"
+    },
+    {
+      "name": "audio 10 ms",
+      "kind": 2,
+      "payload": 3840,
+      "header_hex": "02000000000000000000000000000000"
+    }
+  ]
+}

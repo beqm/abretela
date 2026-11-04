@@ -3,7 +3,8 @@
 // áudio via AudioWorklet -> MediaStreamAudioDestinationNode.
 
 import { invoke } from "@tauri-apps/api/core";
-import { describeError, log } from "./log";
+import { describeError, log } from "../log";
+import { HEADER, KIND_AUDIO, KIND_VIDEO, packetKind, payload, readVideoHeader } from "./packet";
 
 declare class MediaStreamTrackGenerator extends MediaStreamTrack {
   constructor(init: { kind: "video" | "audio" });
@@ -26,11 +27,6 @@ export type NativeCapture = {
   frameHeight: number;
 };
 
-const PKT_VIDEO = 1;
-const PKT_AUDIO = 2;
-const HEADER = 16;
-/** Formato do vídeo no byte 1: convertido no processador ou na placa. */
-const FMT_NV12 = 1;
 
 export const listSources = () => invoke<Source[]>("list_sources");
 export const getThumbnail = (id: string) => invoke<string | null>("thumbnail", { id });
@@ -82,16 +78,16 @@ export async function startNativeCapture(
 
   ws.onmessage = (ev) => {
     const buf = ev.data as ArrayBuffer;
-    const kind = new Uint8Array(buf, 0, 1)[0];
-    if (kind === PKT_VIDEO) {
+    const kind = packetKind(buf);
+    if (kind === KIND_VIDEO) {
       if (pending > 1) return; // encoder atrasado: descarta
-      const dv = new DataView(buf);
+      const header = readVideoHeader(buf);
       let frame: VideoFrame;
       try {
-        frame = new VideoFrame(new Uint8Array(buf, HEADER), {
-          format: dv.getUint8(1) === FMT_NV12 ? "NV12" : "I420",
-          codedWidth: dv.getUint16(2, true),
-          codedHeight: dv.getUint16(4, true),
+        frame = new VideoFrame(payload(buf), {
+          format: header.format,
+          codedWidth: header.width,
+          codedHeight: header.height,
           timestamp: Math.round(performance.now() * 1000),
           colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false },
         });
@@ -111,7 +107,7 @@ export async function startNativeCapture(
           if (writeErrors++ < 3) log.error("capture", `Could not hand a video frame to WebRTC: ${describeError(e)}`);
         })
         .finally(() => pending--);
-    } else if (kind === PKT_AUDIO && player) {
+    } else if (kind === KIND_AUDIO && player) {
       player.port.postMessage(new Float32Array(buf, HEADER), [buf]);
     }
   };

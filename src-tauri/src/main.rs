@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+//! Só liga as peças: plugins do Tauri, estado, inicialização e comandos.
+//! Cada área mora na própria pasta (app, capture, room, tunnel, logging).
+
 #[macro_use]
 mod logging;
 mod app;
@@ -10,139 +13,9 @@ mod tunnel;
 mod e2e_test;
 
 use app::{startup, tray};
-use room::{invite_page, server};
-use serde::Serialize;
-use std::sync::Mutex;
+use room::commands::RoomState;
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
-
-struct Room {
-    stop: tokio::sync::watch::Sender<bool>,
-    tunnel: Box<dyn tunnel::Tunnel>,
-}
-
-#[derive(Default)]
-struct AppState {
-    room: Mutex<Option<Room>>,
-}
-
-impl AppState {
-    fn close(&self) {
-        if let Some(mut room) = self.room.lock().unwrap().take() {
-            let _ = room.stop.send(true);
-            room.tunnel.close();
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct RoomInfo {
-    port: u16,
-    /// URL https pública da sala (o convite é ela + "#senha").
-    url: String,
-    password: String,
-}
-
-/// Senha numérica de 6 dígitos.
-fn random_password() -> String {
-    use std::hash::{BuildHasher, RandomState};
-    let n = RandomState::new().hash_one(std::time::SystemTime::now()) % 1_000_000;
-    format!("{n:06}")
-}
-
-#[tauri::command]
-async fn create_room(
-    state: State<'_, AppState>,
-    settings: server::RoomSettings,
-    password: Option<String>,
-    host_name: Option<String>,
-    lang: Option<String>,
-) -> Result<RoomInfo, String> {
-    state.close();
-
-    let password = password
-        .map(|p| p.trim().chars().take(32).collect::<String>())
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(random_password);
-    log_info!(
-        "room",
-        "Creating a room (quality limits: {}p-{}p, {}-{} fps)",
-        settings.min_height,
-        settings.max_height,
-        settings.min_fps,
-        settings.max_fps
-    );
-    let page = invite_page::InvitePage {
-        host_name: host_name.unwrap_or_default().trim().chars().take(32).collect(),
-        lang: lang.unwrap_or_default(),
-    };
-    let server = server::start(settings, password.clone(), page).await.map_err(|e| {
-        log_error!("room", "Could not start the local room server: {e}");
-        format!("falha ao iniciar servidor: {e}")
-    })?;
-    let tunnel = match tunnel::open(server.port).await {
-        Ok(t) => t,
-        Err(e) => {
-            log_error!("room", "Could not open the internet tunnel: {e}");
-            let _ = server.stop.send(true);
-            return Err(e);
-        }
-    };
-    let url = tunnel.public_url().to_string();
-    log_info!("room", "Room is online at {url}");
-    *state.room.lock().unwrap() = Some(Room { stop: server.stop, tunnel });
-    Ok(RoomInfo { port: server.port, url, password })
-}
-
-#[tauri::command]
-fn close_room(state: State<'_, AppState>) {
-    log_info!("room", "Closed the room");
-    state.close();
-}
-
-/// Linhas de log vindas do frontend.
-#[tauri::command]
-fn log(level: String, area: String, message: String) {
-    logging::write(&level, &area, &message);
-}
-
-#[tauri::command]
-async fn list_sources() -> Vec<capture::Source> {
-    tokio::task::spawn_blocking(capture::list_sources).await.unwrap_or_default()
-}
-
-#[tauri::command]
-async fn thumbnail(id: String) -> Option<String> {
-    tokio::task::spawn_blocking(move || capture::thumbnail(&id)).await.ok().flatten()
-}
-
-/// Retorna a URL do WebSocket local que entrega os frames.
-#[tauri::command]
-async fn start_capture(id: String, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || capture::start(&id, height, fps, audio, gpu))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn stop_capture(token: Option<String>) {
-    let _ = tokio::task::spawn_blocking(move || capture::stop_if(token.as_deref())).await;
-}
-
-#[tauri::command]
-fn set_close_to_tray(app: AppHandle, enabled: bool) {
-    app.state::<tray::Tray>().close_to_tray.store(enabled, Ordering::Relaxed);
-}
-
-#[tauri::command]
-fn set_live(app: AppHandle, live: bool) {
-    tray::set_live(&app, live);
-}
-
-#[tauri::command]
-fn set_tray_texts(app: AppHandle, open: String, quit: String, tooltip: String, live_tooltip: String) {
-    tray::set_texts(&app, &open, &quit, &tooltip, &live_tooltip);
-}
+use tauri::{Manager, RunEvent, WindowEvent};
 
 fn main() {
     tauri::Builder::default()
@@ -158,7 +31,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState::default())
+        .manage(RoomState::default())
         .setup(|app| {
             let fallback = app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("AbreTela"));
             logging::init(
@@ -200,19 +73,19 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            create_room,
-            close_room,
-            list_sources,
-            thumbnail,
-            start_capture,
-            stop_capture,
-            set_close_to_tray,
-            set_live,
-            set_tray_texts,
+            room::commands::create_room,
+            room::commands::close_room,
+            capture::commands::list_sources,
+            capture::commands::thumbnail,
+            capture::commands::start_capture,
+            capture::commands::stop_capture,
+            app::commands::set_close_to_tray,
+            app::commands::set_live,
+            app::commands::set_tray_texts,
+            app::commands::log,
             startup::splash_status,
             startup::splash_done,
             startup::app_ready,
-            log
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o app")
@@ -220,7 +93,7 @@ fn main() {
             if let RunEvent::Exit = event {
                 log_info!("app", "App closed");
                 capture::stop();
-                app.state::<AppState>().close();
+                app.state::<RoomState>().close();
             }
         });
 }

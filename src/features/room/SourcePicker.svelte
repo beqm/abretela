@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getThumbnail, listSources, type Source } from "../../lib/capture";
+  import { getThumbnail, listSources, type Source } from "../../lib/capture/native";
   import {
     allowedFps,
     allowedHeights,
