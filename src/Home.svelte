@@ -13,6 +13,7 @@
   import { prefs, t } from "./lib/prefs.svelte";
   import Credits from "./Credits.svelte";
   import Icon from "./Icon.svelte";
+  import Avatar from "./Avatar.svelte";
   import SettingsPage from "./SettingsPage.svelte";
 
   type Props = {
@@ -23,10 +24,8 @@
   };
   let { onenter, link = null, onlinkused }: Props = $props();
 
-  const NAME_KEY = "abretela.name";
   const SETTINGS_KEY = "abretela.roomSettings";
 
-  let name = $state(loadJson(NAME_KEY, { name: "" }).name);
   let code = $state("");
   let joinPassword = $state("");
   let roomPassword = $state("");
@@ -35,9 +34,8 @@
   let showOptions = $state(false);
   let showSettings = $state(false);
   let settings = $state<RoomSettings>(loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
-  let nameInput = $state<HTMLInputElement>();
 
-  const trimmedName = $derived(name.trim());
+  const trimmedName = $derived(prefs.name);
   // o convite (link) já traz a senha
   const invite = $derived(parseInvite(code));
   const inviteHasPassword = $derived(!!invite?.password);
@@ -80,8 +78,7 @@
       showOptions = false;
       code = l;
       error = null;
-      if (trimmedName && !busy && parseInvite(l)?.password) joinRoom();
-      else nameInput?.focus();
+      if (!busy && parseInvite(l)?.password) joinRoom();
     });
   });
 
@@ -93,7 +90,6 @@
 
   async function createRoom() {
     error = null;
-    saveJson(NAME_KEY, { name: trimmedName });
     busy = t("creatingRoom");
     try {
       const info = await invoke<{ port: number; url: string; password: string }>("create_room", {
@@ -128,7 +124,6 @@
       error = t("enterPassword");
       return;
     }
-    saveJson(NAME_KEY, { name: trimmedName });
     busy = t("connecting");
     try {
       const client = new RoomClient(invite.ws, trimmedName, password);
@@ -197,21 +192,15 @@
 
       <button class="btn primary big" onclick={() => (showOptions = false)}>{t("done")}</button>
     {:else}
-      <label class="field">
-        <span>{t("yourName")}</span>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          bind:this={nameInput}
-          bind:value={name}
-          maxlength="32"
-          placeholder={t("namePlaceholder")}
-          disabled={!!busy}
-          autofocus
-        />
-      </label>
+      <div class="home-identity">
+        <Avatar name={trimmedName} size={26} />
+        <span class="muted">{t("signedAs")}</span>
+        <strong>{trimmedName}</strong>
+        <button class="link-btn" disabled={!!busy} onclick={() => (showSettings = true)}>{t("change")}</button>
+      </div>
 
       <div class="create">
-        <button class="btn primary big" disabled={!trimmedName || !!busy} onclick={createRoom}>
+        <button class="btn primary big" disabled={!!busy} onclick={createRoom}>
           <Icon name="tv" size={20} />
           {t("createRoom")}
         </button>
@@ -242,7 +231,7 @@
             disabled={!!busy}
           />
         {/if}
-        <button class="btn" disabled={!trimmedName || !code.trim() || !!busy}>{t("join")}</button>
+        <button class="btn" disabled={!code.trim() || !!busy}>{t("join")}</button>
       </form>
     {/if}
 

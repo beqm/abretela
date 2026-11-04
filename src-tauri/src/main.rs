@@ -6,6 +6,7 @@ mod capture;
 mod gpu_convert;
 mod invite_page;
 mod server;
+mod startup;
 mod tray;
 mod tunnel;
 #[cfg(test)]
@@ -185,12 +186,10 @@ fn main() {
                     log_warn!("app", "Could not register the abretela:// links: {e}");
                 }
             }
-            // iniciado junto com o Windows: começa escondido na bandeja
-            if std::env::args().any(|a| a == "--minimized") {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.hide();
-                }
-            }
+            // a janela principal nasce escondida; a janelinha de abertura mostra
+            // ela quando tudo carregar (iniciado junto com o Windows: fica na bandeja)
+            let minimized = std::env::args().any(|a| a == "--minimized");
+            startup::setup(app.handle(), minimized)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -211,6 +210,9 @@ fn main() {
             set_close_to_tray,
             set_live,
             set_tray_texts,
+            startup::splash_status,
+            startup::splash_done,
+            startup::app_ready,
             log
         ])
         .build(tauri::generate_context!())

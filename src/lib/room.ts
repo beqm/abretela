@@ -27,7 +27,10 @@ type SignalData =
   | { kind: "answer"; sdp: string }
   | { kind: "ice"; role: "sharer" | "viewer"; candidate: RTCIceCandidateInit }
   /** Tamanho em que quem assiste está vendo a tela (altura em pixels; 0 = app escondido). */
-  | { kind: "view"; height: number };
+  | { kind: "view"; height: number }
+  /** Prévia da tela (imagem pequena), pedida ao passar o mouse na pessoa. */
+  | { kind: "thumb-request" }
+  | { kind: "thumb"; image: string | null };
 
 type ServerMsg =
   | { type: "welcome"; id: string; peers: PeerInfo[]; settings: RoomSettings }
@@ -50,6 +53,8 @@ const RTC_CONFIG: RTCConfiguration = {
 };
 
 const AUDIO_BITRATE = 128_000;
+/** Por quanto tempo a prévia de alguém vale antes de pedir outra. */
+const THUMB_TTL = 5 * 60_000;
 
 /** Executa as operações de uma conexão em ordem (evita corridas de SDP/ICE). */
 class Conn {
@@ -234,6 +239,30 @@ function preferCodecs(transceiver: RTCRtpTransceiver, hw: boolean) {
 }
 
 /** Altura (360/480/720/1080) que basta para um vídeo 16:9 exibido nesse tamanho em pixels CSS. */
+/** Uma imagem JPEG pequena do vídeo de `stream` (para a prévia), ou null. */
+export async function snapshot(stream: MediaStream, width = 320): Promise<string | null> {
+  const track = stream.getVideoTracks()[0];
+  if (!track || track.readyState !== "live") return null;
+  const video = document.createElement("video");
+  video.muted = true;
+  video.srcObject = new MediaStream([track]);
+  try {
+    await video.play();
+    if (!video.videoWidth) await new Promise((r) => video.addEventListener("loadeddata", r, { once: true }));
+    const height = Math.round((width * video.videoHeight) / video.videoWidth) || Math.round((width * 9) / 16);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")!.drawImage(video, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch {
+    return null;
+  } finally {
+    video.pause();
+    video.srcObject = null;
+  }
+}
+
 function heightTier(width: number, height: number): number {
   // object-fit: contain; o que conta é a altura visível
   const visible = Math.min(height, (width * 9) / 16) * devicePixelRatio;
@@ -273,6 +302,11 @@ export class RoomClient {
   private sentView = new Map<string, number>();
   /** Quem transmite: altura pedida por cada espectador. */
   private viewerWants = new Map<string, number>();
+  /** Prévias das telas de quem está ao vivo (pedidas ao passar o mouse). */
+  thumbs = new Map<string, { image: string | null; at: number }>();
+  private thumbPending = new Set<string>();
+  /** A prévia da minha tela, reaproveitada quando várias pessoas pedem juntas. */
+  private ownThumb: { image: string | null; at: number } | null = null;
   /** Tela aberta na janela flutuante e a altura dela (continua visível com o app minimizado). */
   private pip: { id: string; height: number } | null = null;
   private onVisibility = () => this.watching.forEach((id) => this.sendView(id));
@@ -422,6 +456,7 @@ export class RoomClient {
         this.peers.delete(msg.id);
         this.onPeerEvent?.("leave");
         this.viewerWants.delete(msg.id);
+        this.thumbs.delete(msg.id);
         this.closeOut(msg.id);
         this.dropView(msg.id);
         break;
@@ -438,6 +473,7 @@ export class RoomClient {
           p.sharing = msg.sharing;
           p.label = msg.label;
         }
+        this.thumbs.delete(msg.id); // trocou de tela ou parou: a prévia antiga não vale mais
         if (!msg.sharing && msg.id !== this.selfId) this.dropView(msg.id);
         break;
       }
@@ -477,9 +513,66 @@ export class RoomClient {
     this.emit();
   }
 
+  /**
+   * Solta a captura atual sem derrubar as conexões, para trocar de tela: o
+   * Rust só mantém uma captura por vez, e a próxima precisa da vaga.
+   */
+  releaseCapture() {
+    if (!this.capture) return;
+    this.capture.onEnded = null;
+    this.capture.stop();
+    this.capture = null;
+  }
+
+  /** Troca a tela transmitida sem desconectar quem está assistindo. */
+  switchShare(capture: NativeCapture, quality: Quality, sourceTitle: string, hwEncode: boolean) {
+    const old = this.localStream;
+    if (!old || this.status !== "connected") {
+      this.startShare(capture, quality, sourceTitle, hwEncode);
+      return;
+    }
+    this.releaseCapture();
+    this.capture = capture;
+    this.quality = quality;
+    this.hwEncode = hwEncode;
+    this.localStream = capture.stream;
+    this.ownThumb = null;
+    capture.onEnded = () => this.stopShare();
+
+    // mesmas faixas (vídeo, áudio): só troca o conteúdo; senão, refaz a conexão
+    const kinds = (s: MediaStream) => s.getTracks().map((t) => t.kind).sort().join();
+    const sameKinds = kinds(old) === kinds(capture.stream);
+    for (const [viewerId, conn] of this.out) {
+      if (!sameKinds) {
+        this.startSending(viewerId);
+        continue;
+      }
+      conn.run("Switching the screen", async () => {
+        for (const sender of conn.pc.getSenders()) {
+          const track = capture.stream.getTracks().find((t) => t.kind === sender.track?.kind);
+          if (track) await sender.replaceTrack(track);
+        }
+      });
+      this.applyView(viewerId); // a qualidade nova pode ter outro fps e bitrate
+    }
+
+    const label = `${qualityLabel(quality)} · ${sourceTitle}`.slice(0, 48);
+    log.info(
+      "sharing",
+      `Switched to "${sourceTitle}" at ${qualityLabel(quality)}` +
+        (sameKinds ? "" : " (audio changed, reconnecting viewers)") +
+        `. Tracks: ${describeTracks(capture.stream)}`,
+    );
+    const me = this.peers.get(this.selfId)!;
+    me.label = label;
+    this.sendRaw({ type: "sharing", sharing: true, label });
+    this.emit();
+  }
+
   stopShare() {
     if (!this.localStream) return;
     log.info("sharing", "Stopped sharing");
+    this.ownThumb = null;
     this.capture?.stop();
     this.capture = null;
     this.localStream = null;
@@ -630,6 +723,34 @@ export class RoomClient {
     this.watch(id);
   }
 
+  /** Pede a prévia da tela de alguém, se a guardada tiver mais de 5 minutos. */
+  requestThumb(id: string) {
+    const cached = this.thumbs.get(id);
+    if (cached && Date.now() - cached.at < THUMB_TTL) return;
+    if (this.thumbPending.has(id) || !this.peers.get(id)?.sharing) return;
+    this.thumbPending.add(id);
+    this.signal(id, { kind: "thumb-request" });
+    this.emit();
+    setTimeout(() => {
+      if (!this.thumbPending.delete(id)) return;
+      // sem resposta (app antigo ou travado): tenta de novo daqui a 1 minuto
+      this.thumbs.set(id, { image: null, at: Date.now() - THUMB_TTL + 60_000 });
+      this.emit();
+    }, 5000);
+  }
+
+  isThumbLoading(id: string) {
+    return this.thumbPending.has(id);
+  }
+
+  private async sendThumb(to: string) {
+    if (!this.localStream) return;
+    if (!this.ownThumb || Date.now() - this.ownThumb.at > 30_000) {
+      this.ownThumb = { image: await snapshot(this.localStream), at: Date.now() };
+    }
+    this.signal(to, { kind: "thumb", image: this.ownThumb.image });
+  }
+
   /** O tile de alguém mudou de tamanho (em pixels CSS). */
   setViewSize(id: string, width: number, height: number) {
     this.viewHeight.set(id, heightTier(width, height));
@@ -690,6 +811,16 @@ export class RoomClient {
         this.viewerWants.delete(from);
         this.closeOut(from);
         break;
+      case "thumb-request":
+        void this.sendThumb(from);
+        break;
+      case "thumb": {
+        this.thumbPending.delete(from);
+        const ok = typeof data.image === "string" && data.image.startsWith("data:image/jpeg") && data.image.length < 300_000;
+        this.thumbs.set(from, { image: ok ? data.image : null, at: Date.now() });
+        this.emit();
+        break;
+      }
       case "view":
         this.viewerWants.set(from, Math.max(0, Number(data.height) || 0));
         this.applyView(from);

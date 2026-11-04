@@ -1,7 +1,7 @@
 // Só em desenvolvimento: uma sala falsa (?mock) para ver a interface no
 // navegador sem Tauri nem servidor. Vídeos são canvas animados.
 
-import type { PeerInfo, RemoteView, RoomClient } from "../lib/room";
+import { snapshot, type PeerInfo, type RemoteView, type RoomClient } from "../lib/room";
 import { DEFAULT_SETTINGS } from "../lib/quality";
 
 function fakeStream(hue: number, text: string): MediaStream {
@@ -73,6 +73,15 @@ export function mockRoom(empty = false): RoomClient {
     retry() {},
     setViewSize() {},
     setPip() {},
+    thumbs: new Map<string, { image: string | null; at: number }>(),
+    async requestThumb(id: string) {
+      const stream = views.get(id)?.stream;
+      client.thumbs.set(id, { image: stream ? await snapshot(stream) : null, at: Date.now() });
+      emit();
+    },
+    isThumbLoading: () => false,
+    releaseCapture() {},
+    switchShare() {},
     leave() {},
     stopShare() {
       client.localStream = null;

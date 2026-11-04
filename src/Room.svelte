@@ -54,7 +54,8 @@
   let notice = $state<string | null>(null);
   let copied = $state(false);
   let showPassword = $state(false);
-  let picking = $state(false);
+  /** Seletor de tela aberto: para começar a transmitir ou para trocar de tela. */
+  let pickMode = $state<"start" | "switch" | null>(null);
   let showSettings = $state(false);
   let focusId = $state<string | null>(null);
 
@@ -196,7 +197,9 @@
 
   async function startShare(pick: { source: Source; quality: Quality; audio: boolean }) {
     notice = null;
+    const switching = pickMode === "switch" && snap.sharing;
     try {
+      if (switching) client.releaseCapture();
       const capture = await startNativeCapture(
         pick.source.id,
         pick.quality.height,
@@ -208,14 +211,52 @@
         pick.source.kind === "screen"
           ? t("screenN", { n: pick.source.title })
           : pick.source.app || pick.source.title;
-      client.startShare(capture, pick.quality, title, prefs.hwAccel);
+      if (switching) client.switchShare(capture, pick.quality, title, prefs.hwAccel);
+      else client.startShare(capture, pick.quality, title, prefs.hwAccel);
     } catch (e) {
-      log.error("sharing", `Could not start sharing: ${describeError(e)}`);
+      log.error("sharing", `Could not ${switching ? "switch the screen" : "start sharing"}: ${describeError(e)}`);
       notice = t("shareFailed", { e: String(e) });
+      if (switching) client.stopShare(); // a captura antiga já foi solta
     } finally {
-      picking = false;
+      pickMode = null;
     }
   }
+
+  // ---------- prévia ao passar o mouse em quem está ao vivo ----------
+  let sidebar = $state<HTMLElement>();
+  let hover = $state<{ id: string; top: number; left: number } | null>(null);
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function hoverPeer(p: PeerView, e: MouseEvent) {
+    if (!p.sharing || p.isSelf || p.watching) return;
+    const row = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const left = (sidebar?.getBoundingClientRect().right ?? row.right) + 8;
+    const top = Math.max(8, Math.min(row.top, window.innerHeight - 240));
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      hover = { id: p.id, top, left };
+      client.requestThumb(p.id);
+    }, 250);
+  }
+
+  function leavePeer() {
+    clearTimeout(hoverTimer);
+    hover = null;
+  }
+
+  const preview = $derived.by(() => {
+    tick;
+    if (!hover) return null;
+    const p = client.peers.get(hover.id);
+    if (!p?.sharing || client.watching.has(hover.id)) return null;
+    return {
+      ...hover,
+      name: p.name,
+      label: p.label,
+      image: client.thumbs.get(hover.id)?.image ?? null,
+      loading: client.isThumbLoading(hover.id),
+    };
+  });
 
   async function copyInvite() {
     await navigator.clipboard.writeText(makeInvite(roomUrl, password));
@@ -269,7 +310,7 @@
   </header>
 
   <div class="room-body">
-  <aside class="sidebar" class:collapsed>
+  <aside class="sidebar" class:collapsed bind:this={sidebar}>
     <div class="sidebar-head">
       {#if !collapsed}
         <span class="sidebar-title">{t("peopleInRoom", { n: snap.peers.length })}</span>
@@ -288,7 +329,12 @@
 
     <ul class="peer-list">
       {#each snap.peers as p (p.id)}
-        <li class:watching={p.watching} class:live={p.sharing}>
+        <li
+          class:watching={p.watching}
+          class:live={p.sharing}
+          onmouseenter={(e) => hoverPeer(p, e)}
+          onmouseleave={leavePeer}
+        >
           {#if collapsed}
             <button
               class="peer-avatar-btn"
@@ -329,16 +375,28 @@
 
     <div class="sidebar-foot">
       {#if snap.sharing}
-        <button
-          class="btn danger"
-          class:big={!collapsed}
-          class:square={collapsed}
-          title={t("closeMyScreen")}
-          onclick={() => client.stopShare()}
-        >
-          <Icon name="x" size={20} />
-          {#if !collapsed}{t("closeMyScreen")}{/if}
-        </button>
+        <div class="share-actions" class:collapsed>
+          <button
+            class="btn"
+            class:big={!collapsed}
+            class:square={collapsed}
+            title={t("switchScreen")}
+            onclick={() => (pickMode = "switch")}
+          >
+            <Icon name="refresh" size={18} />
+            {#if !collapsed}{t("switchScreen")}{/if}
+          </button>
+          <button
+            class="btn danger"
+            class:big={!collapsed}
+            class:square={collapsed}
+            title={t("closeMyScreen")}
+            onclick={() => client.stopShare()}
+          >
+            <Icon name="x" size={18} />
+            {#if !collapsed}{t("stopSharing")}{/if}
+          </button>
+        </div>
       {:else}
         <button
           class="btn primary"
@@ -346,7 +404,7 @@
           class:square={collapsed}
           title={t("openMyScreen")}
           disabled={snap.status !== "connected"}
-          onclick={() => (picking = true)}
+          onclick={() => (pickMode = "start")}
         >
           <Icon name="plus" size={20} />
           {#if !collapsed}{t("openMyScreen")}{/if}
@@ -379,7 +437,7 @@
               </span>
             </button>
           {:else}
-            <button class="action-card" disabled={snap.status !== "connected"} onclick={() => (picking = true)}>
+            <button class="action-card" disabled={snap.status !== "connected"} onclick={() => (pickMode = "start")}>
               <span class="action-icon primary"><Icon name="monitor" size={20} /></span>
               <span class="action-text">
                 <span class="action-title">{t("openMyScreen")}</span>
@@ -484,8 +542,32 @@
   <!-- svelte-ignore a11y_media_has_caption -->
   <video class="pip-source" bind:this={pipVideo} muted playsinline onleavepictureinpicture={onLeavePip}></video>
 
-  {#if picking}
-    <SourcePicker settings={client.settings} onpick={startShare} oncancel={() => (picking = false)} />
+  {#if pickMode}
+    <SourcePicker
+      settings={client.settings}
+      switching={pickMode === "switch"}
+      onpick={startShare}
+      oncancel={() => (pickMode = null)}
+    />
+  {/if}
+
+  {#if preview}
+    <div class="peer-preview" style:top="{preview.top}px" style:left="{preview.left}px">
+      <div class="peer-preview-img">
+        {#if preview.image}
+          <img src={preview.image} alt="" />
+        {:else if preview.loading}
+          <span class="spinner"></span>
+        {:else}
+          <span class="muted">{t("noPreview")}</span>
+        {/if}
+      </div>
+      <div class="peer-preview-meta">
+        <span class="live-badge"><span class="live-dot"></span>{t("live")}</span>
+        <strong>{preview.name}</strong>
+      </div>
+      {#if preview.label}<div class="hint">{preview.label}</div>{/if}
+    </div>
   {/if}
   {#if switching}
     <ConfirmModal

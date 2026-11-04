@@ -7,8 +7,16 @@
   import Icon, { type IconName } from "./Icon.svelte";
   import Toggle from "./Toggle.svelte";
   import Credits from "./Credits.svelte";
+  import Avatar from "./Avatar.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
+
+  // nome: salva ao sair do campo; vazio volta ao anterior
+  let nameDraft = $state(prefs.name);
+  function saveName() {
+    if (nameDraft.trim()) prefs.name = nameDraft;
+    nameDraft = prefs.name;
+  }
 
   type Section = "general" | "appearance" | "about";
   let section = $state<Section>("general");
@@ -112,6 +120,25 @@
       </header>
 
       {#if section === "general"}
+        <section class="settings-group">
+          <div class="group-label"><Icon name="users" size={15} /> {t("profile")}</div>
+          <div class="profile-row">
+            <Avatar name={nameDraft.trim() || prefs.name} size={40} />
+            <label class="field">
+              <span>{t("yourName")}</span>
+              <input
+                bind:value={nameDraft}
+                maxlength="32"
+                placeholder={t("namePlaceholder")}
+                spellcheck="false"
+                onblur={saveName}
+                onkeydown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              />
+            </label>
+          </div>
+          <p class="hint">{t("nameHint")}</p>
+        </section>
+
         <section class="settings-group">
           <div class="group-label"><Icon name="globe" size={15} /> {t("language")}</div>
           <div class="lang-grid">

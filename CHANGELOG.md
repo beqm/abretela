@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0] - 2026-11-03
+
+### Novidades
+- **Trocar tela sem parar**: quem está ao vivo pode trocar o que está transmitindo sem derrubar quem está assistindo.
+- **Prévia de quem está ao vivo**: passe o mouse sobre alguém na lista para ver uma imagem da tela antes de assistir.
+- **Tela de abertura**: o app abre com o mascote pulando numa janelinha, como o Discord, e já procura atualizações ali.
+
+### Melhorias
+- O nome é pedido só na primeira vez que o app abre. Para mudar, vá em Configurações > Geral > Perfil.
+
 ## [0.2.0] - 2026-11-03
 
 ### Novidades

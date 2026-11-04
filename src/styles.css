@@ -1337,21 +1337,6 @@ select:focus-visible {
   color: var(--primary-text);
 }
 
-.updater {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  text-align: center;
-  padding: 16px;
-}
-
-.updater-status {
-  font-weight: 700;
-}
-
 .progress {
   width: 240px;
   height: 6px;
@@ -2017,4 +2002,144 @@ button:focus-visible {
 
 .settings-page .credits {
   justify-content: flex-start;
+}
+
+/* ---------- boas-vindas e nome ---------- */
+
+.welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 8px;
+  padding: 24px 16px;
+  text-align: center;
+  overflow-y: auto;
+}
+
+.welcome h1 {
+  font-size: 26px;
+  margin-top: 8px;
+}
+
+.welcome-form {
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.welcome-form input {
+  height: 44px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.welcome .hint {
+  margin-top: 4px;
+}
+
+.home-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-identity strong {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-identity .link-btn {
+  margin-left: auto;
+}
+
+.profile-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.profile-row .field {
+  flex: 1;
+}
+
+/* ---------- trocar tela e prévia de quem está ao vivo ---------- */
+
+.share-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.share-actions .btn.big {
+  flex: 1;
+  width: auto;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.share-actions.collapsed {
+  flex-direction: column;
+  align-items: center;
+}
+
+.peer-preview {
+  position: fixed;
+  z-index: 15;
+  width: 260px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  animation: pop-in 0.12s ease-out;
+}
+
+.peer-preview-img {
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-sm);
+  background: var(--stage);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.peer-preview-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.peer-preview-img .spinner {
+  border-color: rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.7);
+}
+
+.peer-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 2px 0;
+  min-width: 0;
+}
+
+.peer-preview-meta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-preview .hint {
+  margin: 2px 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

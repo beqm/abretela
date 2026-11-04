@@ -4,14 +4,13 @@
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
   import Home from "./Home.svelte";
   import Room from "./Room.svelte";
-  import Updater from "./Updater.svelte";
+  import Welcome from "./Welcome.svelte";
   import { parseInvite, roomLabel, type RoomClient } from "./lib/room";
   import { log } from "./lib/log";
   import { prefs, t } from "./lib/prefs.svelte";
 
   type ActiveRoom = { client: RoomClient; room: string; password: string; isHost: boolean };
 
-  let ready = $state(false);
   let room = $state<ActiveRoom | null>(null);
   /** Link de convite (abretela://...) que chegou e ainda não foi usado. */
   let link = $state<string | null>(null);
@@ -40,6 +39,8 @@
 
   // links abretela:// que abriram o app ou chegaram com ele já aberto
   onMount(() => {
+    // a janelinha de abertura fecha e esta janela aparece
+    invoke("app_ready").catch(() => {});
     getCurrent()
       .then((urls) => openLink(urls?.[0]))
       .catch(() => {});
@@ -63,9 +64,7 @@
   });
 </script>
 
-{#if !ready}
-  <Updater ondone={() => (ready = true)} />
-{:else if room}
+{#if room}
   <Room
     client={room.client}
     roomUrl={room.room}
@@ -75,6 +74,8 @@
     onlinkdismiss={() => (link = null)}
     onexit={() => (room = null)}
   />
+{:else if !prefs.name}
+  <Welcome />
 {:else}
   <Home onenter={(r) => (room = r)} {link} onlinkused={() => (link = null)} />
 {/if}

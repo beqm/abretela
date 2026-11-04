@@ -30,7 +30,8 @@ export function describeError(e: unknown): string {
  * Registra no arquivo os erros que escapariam: exceções não tratadas,
  * promessas rejeitadas e `console.error`/`console.warn`.
  */
-export function installGlobalLogging() {
+/** `describeGpu`: anota a placa de vídeo no log (só a janela principal precisa). */
+export function installGlobalLogging({ describeGpu = true } = {}) {
   window.addEventListener("error", (ev) => {
     const where = ev.filename ? ` (at ${ev.filename.split("/").pop()}:${ev.lineno})` : "";
     send("error", "app", `Unexpected error: ${describeError(ev.error ?? ev.message)}${where}`);
@@ -50,7 +51,7 @@ export function installGlobalLogging() {
   };
 
   // informações úteis para diagnosticar problemas de vídeo
-  log.info("app", `Graphics card: ${gpuName()}`);
+  if (describeGpu) log.info("app", `Graphics card: ${gpuName()}`);
 }
 
 function gpuName(): string {

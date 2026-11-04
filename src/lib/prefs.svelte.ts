@@ -1,4 +1,4 @@
-// Preferências do app (idioma e tema), reativas e salvas no localStorage.
+// Preferências do app (nome, idioma, tema...), reativas e salvas no localStorage.
 
 import { pt, type Messages } from "./locales/pt";
 import { en } from "./locales/en";
@@ -27,7 +27,16 @@ function detectLang(): Lang {
   return (LANGUAGES.find((l) => l.code === nav)?.code ?? "pt") as Lang;
 }
 
-type Prefs = { lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean; hwAccel: boolean };
+type Prefs = { name: string; lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean; hwAccel: boolean };
+
+/** Nome salvo pela tela inicial em versões antigas (até a 0.2.0). */
+function legacyName(): string {
+  try {
+    return JSON.parse(localStorage.getItem("abretela.name") ?? "{}").name ?? "";
+  } catch {
+    return "";
+  }
+}
 
 function load(): Prefs {
   let saved: Partial<Prefs> = {};
@@ -35,6 +44,7 @@ function load(): Prefs {
     saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
   } catch {}
   return {
+    name: typeof saved.name === "string" ? saved.name : legacyName(),
     lang: saved.lang && saved.lang in DICTS ? saved.lang : detectLang(),
     theme: saved.theme && ["system", "light", "dark"].includes(saved.theme) ? saved.theme : "system",
     closeToTray: saved.closeToTray ?? true,
@@ -56,6 +66,16 @@ function apply() {
 apply();
 
 export const prefs = {
+  /** Como os outros te veem nas salas (vazio = ainda não escolheu). */
+  get name() {
+    return state.name;
+  },
+  set name(v: string) {
+    const name = v.trim().slice(0, 32);
+    if (!name) return;
+    state.name = name;
+    apply();
+  },
   get lang() {
     return state.lang;
   },

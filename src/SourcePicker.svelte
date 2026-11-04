@@ -18,8 +18,10 @@
     settings: RoomSettings;
     onpick: (pick: { source: Source; quality: Quality; audio: boolean }) => void;
     oncancel: () => void;
+    /** Trocando a tela de uma transmissão que já está no ar. */
+    switching?: boolean;
   };
-  let { settings, onpick, oncancel }: Props = $props();
+  let { settings, onpick, oncancel, switching = false }: Props = $props();
 
   const PREFS_KEY = "abretela.sharePrefs";
   const prefs = loadJson(PREFS_KEY, { height: 720, fps: 30, audio: true });
@@ -80,7 +82,7 @@
 <div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && oncancel()}>
   <div class="modal picker">
     <header class="modal-head">
-      <h2>{t("shareTitle")}</h2>
+      <h2>{switching ? t("switchScreenTitle") : t("shareTitle")}</h2>
       <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
       <div class="spacer"></div>
       <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
@@ -135,7 +137,7 @@
       <div class="spacer"></div>
       <button class="btn" onclick={oncancel}>{t("cancel")}</button>
       <button class="btn primary" disabled={!selectedSource || starting} onclick={go}>
-        {starting ? t("starting") : t("startStreaming")}
+        {starting ? t("starting") : switching ? t("switchTo") : t("startStreaming")}
       </button>
     </footer>
   </div>
