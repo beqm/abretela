@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeInvite, parseInvite, roomLabel } from "./room";
+import { makeInvite, parseInvite, roomLabel } from "./invite";
 
 const ROOM = "https://abc-def.trycloudflare.com";
 const WS = "wss://abc-def.trycloudflare.com/ws";

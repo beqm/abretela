@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { makeInvite, parseInvite, roomLabel, type RemoteView, type RoomClient } from "../../lib/room";
+  import { makeInvite, parseInvite, roomLabel } from "../../lib/invite";
+  import type { RoomClient } from "../../lib/room";
+  import type { RemoteView } from "../../lib/transport/types";
   import { startNativeCapture, type Source } from "../../lib/capture";
   import { describeError, log } from "../../lib/log";
   import type { Quality } from "../../lib/quality";

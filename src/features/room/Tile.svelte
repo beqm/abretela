@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import type { RemoteView } from "../../lib/room";
+  import type { RemoteView } from "../../lib/transport/types";
   import { t } from "../../lib/prefs.svelte";
   import Icon from "../../ui/Icon.svelte";
 

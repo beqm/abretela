@@ -4,8 +4,11 @@ import {
   allowedFps,
   allowedHeights,
   clampQuality,
+  encodingFor,
   heightTier,
+  rankVideoCodec,
   videoBitrate,
+  viewerHeight,
   type RoomSettings,
 } from "./quality";
 
@@ -58,6 +61,80 @@ describe("limites da sala", () => {
     expect(allowedHeights(s)).toEqual([480, 720]);
     expect(allowedFps(s)).toEqual([15, 30]);
     expect(allowedHeights(DEFAULT_SETTINGS)).toEqual([360, 480, 720, 1080]);
+  });
+});
+
+describe("viewerHeight", () => {
+  it("pede o tamanho do tile", () => {
+    expect(viewerHeight(720, 0, false)).toBe(720);
+  });
+
+  it("com o app escondido pede 0 (só áudio)", () => {
+    expect(viewerHeight(720, 0, true)).toBe(0);
+  });
+
+  it("a janela flutuante continua valendo com o app escondido", () => {
+    expect(viewerHeight(720, 480, true)).toBe(480);
+    expect(viewerHeight(360, 720, false)).toBe(720);
+  });
+
+  it("sem tamanho ainda, não pede nada", () => {
+    expect(viewerHeight(undefined, 0, false)).toBeNull();
+  });
+});
+
+describe("encodingFor", () => {
+  const q = { height: 1080, fps: 60 };
+
+  it("0 desliga o vídeo", () => {
+    expect(encodingFor(0, q, 1080)).toEqual({ active: false });
+  });
+
+  it("nunca manda mais que a qualidade escolhida", () => {
+    expect(encodingFor(2160, q, 1080)).toMatchObject({ height: 1080, fps: 60, scaleDownBy: 1 });
+  });
+
+  it("miniatura recebe menos resolução e no máximo 30 fps", () => {
+    expect(encodingFor(360, q, 1080)).toMatchObject({ height: 360, fps: 30, scaleDownBy: 3, maxBitrate: 800_000 });
+  });
+
+  it("720p de uma fonte 1080p mantém o fps", () => {
+    expect(encodingFor(720, q, 1080)).toMatchObject({ height: 720, fps: 60, scaleDownBy: 1.5 });
+  });
+
+  it("não aumenta uma fonte menor que o pedido", () => {
+    expect(encodingFor(720, q, 600)).toMatchObject({ scaleDownBy: 1 });
+  });
+});
+
+describe("rankVideoCodec", () => {
+  const h264 = (fmtp: string) => ({ mimeType: "video/H264", sdpFmtpLine: fmtp });
+  const order = (hw: boolean, codecs: { mimeType: string; sdpFmtpLine?: string }[]) =>
+    [...codecs].sort((a, b) => rankVideoCodec(a, hw) - rankVideoCodec(b, hw)).map((c) => c.mimeType + (c.sdpFmtpLine ?? ""));
+  const all = [
+    { mimeType: "video/rtx" },
+    { mimeType: "video/VP9" },
+    h264("profile-level-id=640c1f;packetization-mode=1"),
+    { mimeType: "video/VP8" },
+    h264("profile-level-id=42e01f;packetization-mode=0"),
+    h264("profile-level-id=42e01f;packetization-mode=1"),
+    { mimeType: "video/AV1" },
+  ];
+
+  it("com aceleração, H.264 baseline modo 1 primeiro", () => {
+    expect(order(true, all)).toEqual([
+      "video/H264profile-level-id=42e01f;packetization-mode=1",
+      "video/H264profile-level-id=640c1f;packetization-mode=1",
+      "video/H264profile-level-id=42e01f;packetization-mode=0",
+      "video/VP8",
+      "video/VP9",
+      "video/AV1",
+      "video/rtx",
+    ]);
+  });
+
+  it("sem aceleração, VP8 primeiro", () => {
+    expect(order(false, all)[0]).toBe("video/VP8");
   });
 });
 

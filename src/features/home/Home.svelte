@@ -1,7 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { RoomClient, WrongPasswordError, parseInvite } from "../../lib/room";
+  import { RoomClient } from "../../lib/room";
+  import { WrongPasswordError } from "../../lib/signaling";
+  import { parseInvite } from "../../lib/invite";
   import {
     DEFAULT_SETTINGS,
     FPS_OPTIONS,

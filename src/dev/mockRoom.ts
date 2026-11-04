@@ -1,7 +1,10 @@
 // Só em desenvolvimento: uma sala falsa (?mock) para ver a interface no
 // navegador sem Tauri nem servidor. Vídeos são canvas animados.
 
-import { snapshot, type PeerInfo, type RemoteView, type RoomClient } from "../lib/room";
+import type { RoomClient } from "../lib/room";
+import type { PeerInfo } from "../lib/signaling";
+import { snapshot } from "../lib/thumbs";
+import type { RemoteView } from "../lib/transport/types";
 import { DEFAULT_SETTINGS } from "../lib/quality";
 
 function fakeStream(hue: number, text: string): MediaStream {

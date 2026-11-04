@@ -5,7 +5,8 @@
   import Home from "../features/home/Home.svelte";
   import Room from "../features/room/Room.svelte";
   import Welcome from "../features/home/Welcome.svelte";
-  import { parseInvite, roomLabel, type RoomClient } from "../lib/room";
+  import { parseInvite, roomLabel } from "../lib/invite";
+  import type { RoomClient } from "../lib/room";
   import { log } from "../lib/log";
   import { prefs, t } from "../lib/prefs.svelte";
 
