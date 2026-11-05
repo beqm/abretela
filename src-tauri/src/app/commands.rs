@@ -10,6 +10,13 @@ pub fn log(level: String, area: String, message: String) {
     crate::logging::write(&level, &area, &message);
 }
 
+/// Escreve as placas de rede no log (chamado ao entrar numa sala).
+#[tauri::command]
+pub async fn log_network(why: String) {
+    // GetAdaptersAddresses pode demorar um pouco: fora da thread principal
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::logging::network::log_adapters(&why)).await;
+}
+
 #[tauri::command]
 pub fn set_close_to_tray(app: AppHandle, enabled: bool) {
     app.state::<tray::Tray>().close_to_tray.store(enabled, Ordering::Relaxed);

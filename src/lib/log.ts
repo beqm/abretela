@@ -15,6 +15,11 @@ export const log = {
   error: (area: string, message: string) => send("error", area, message),
 };
 
+/** Escreve no log as placas de rede do PC (IPs, VPNs, gateway); `why` diz quando. */
+export function logNetwork(why: string) {
+  invoke("log_network", { why }).catch(() => {});
+}
+
 /** Texto legível de um erro qualquer (inclui o nome, ex.: "InvalidAccessError: ..."). */
 export function describeError(e: unknown): string {
   if (e instanceof Error) return e.name && e.name !== "Error" ? `${e.name}: ${e.message}` : e.message;

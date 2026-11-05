@@ -10,6 +10,7 @@ import type { NativeCapture } from "./capture/native";
 vi.mock("./log", () => ({
   log: { info: () => {}, warn: () => {}, error: () => {} },
   describeError: (e: unknown) => String(e),
+  logNetwork: () => {},
 }));
 
 const URL = "ws://sala.test/ws";

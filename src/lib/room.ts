@@ -2,7 +2,7 @@
 // e política de qualidade) e expõe o estado da sala para a interface.
 
 import type { NativeCapture } from "./capture/native";
-import { describeError, log } from "./log";
+import { describeError, log, logNetwork } from "./log";
 import { DEFAULT_SETTINGS, heightTier, qualityLabel, viewerHeight, type Quality, type RoomSettings } from "./quality";
 import { Signaling, type PeerInfo, type ServerMsg, type SignalData } from "./signaling";
 import { Thumbs } from "./thumbs";
@@ -126,6 +126,7 @@ export class RoomClient {
         document.addEventListener("visibilitychange", this.onVisibility);
         const others = msg.peers.map((p) => `"${p.name}"`).join(", ");
         log.info("room", `Joined the room (${others ? `${others} already there` : "nobody else there yet"})`);
+        logNetwork("when joining the room");
         break;
       }
       case "peer-joined":

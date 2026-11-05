@@ -244,3 +244,6 @@ macro_rules! log_warn {
 macro_rules! log_error {
     ($area:expr, $($arg:tt)*) => { $crate::logging::write("error", $area, &format!($($arg)*)) };
 }
+
+// depois das macros, que ele usa
+pub mod network;

@@ -43,6 +43,7 @@ fn main() {
                     tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
                 ),
             );
+            std::thread::spawn(|| logging::network::log_adapters("at startup"));
             tauri::async_runtime::spawn(async {
                 if let Err(e) = capture::serve().await {
                     log_error!("capture", "The local capture server stopped: {e}");
@@ -83,6 +84,7 @@ fn main() {
             app::commands::set_live,
             app::commands::set_tray_texts,
             app::commands::log,
+            app::commands::log_network,
             startup::splash_status,
             startup::splash_done,
             startup::app_ready,

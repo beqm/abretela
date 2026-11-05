@@ -4,7 +4,16 @@
 
 import { describeError, log } from "../log";
 import { encodingFor, qualityLabel, rankVideoCodec, videoBitrate } from "../quality";
-import { describeTracks, instrument, summarizeRoutes, type Instrumented } from "./diagnostics";
+import {
+  describeTracks,
+  instrument,
+  logConnectionReport,
+  noteClosed,
+  noteLocalRoute,
+  noteRemoteRoute,
+  type Instrumented,
+} from "./diagnostics";
+import { describeSdp, summarizeRoutes, type Route } from "./routes";
 import { AUDIO_BITRATE, tuneOpus } from "./sdp";
 import type { MediaTransport, Publication, TransportHost, TransportSignal } from "./types";
 
@@ -19,8 +28,9 @@ class Conn implements Instrumented {
   private chain: Promise<void> = Promise.resolve();
   /** Última qualidade aplicada para este espectador (para logar só mudanças). */
   applied = "";
-  localRoutes: string[] = [];
-  remoteRoutes: string[] = [];
+  localRoutes: Route[] = [];
+  remoteRoutes: Route[] = [];
+  startedAt = Date.now();
   constructor(
     public pc: RTCPeerConnection,
     public area: "sharing" | "watching",
@@ -100,12 +110,18 @@ export class MeshTransport implements MediaTransport {
 
   unpublish() {
     this.pub = null;
-    this.out.forEach((c) => c.pc.close());
+    this.out.forEach((c) => {
+      noteClosed(c, "stopped sharing");
+      c.pc.close();
+    });
     this.out.clear();
   }
 
-  private closeOut(viewerId: string) {
-    this.out.get(viewerId)?.pc.close();
+  private closeOut(viewerId: string, why: string) {
+    const conn = this.out.get(viewerId);
+    if (!conn) return;
+    noteClosed(conn, why);
+    conn.pc.close();
     this.out.delete(viewerId);
   }
 
@@ -118,7 +134,7 @@ export class MeshTransport implements MediaTransport {
     }
     const { stream, quality } = pub;
     log.info("sharing", `${this.nameOf(viewerId)} wants to watch. Tracks: ${describeTracks(stream)}`);
-    this.closeOut(viewerId);
+    this.closeOut(viewerId, "starting over for a new request");
 
     const pc = new RTCPeerConnection(RTC_CONFIG);
     const conn = new Conn(pc, "sharing", who);
@@ -127,7 +143,7 @@ export class MeshTransport implements MediaTransport {
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        conn.localRoutes.push(e.candidate.type ?? "unknown");
+        noteLocalRoute(conn, e.candidate);
         this.signal(viewerId, { kind: "ice", role: "sharer", candidate: e.candidate.toJSON() });
       }
     };
@@ -150,10 +166,9 @@ export class MeshTransport implements MediaTransport {
     }
     conn.run("Creating the offer", async () => {
       const offer = await pc.createOffer();
-      const codecs = new Set(offer.sdp!.match(/a=rtpmap:\d+ [\w-]+/g)?.map((l) => l.split(" ")[1]));
       await pc.setLocalDescription({ type: "offer", sdp: tuneOpus(offer.sdp!) });
       this.signal(viewerId, { kind: "offer", sdp: pc.localDescription!.sdp });
-      log.info("sharing", `Sent the offer ${who} (codecs: ${[...codecs].join(", ") || "none!"})`);
+      log.info("sharing", `Sent the offer ${who}: ${describeSdp(pc.localDescription!.sdp)}`);
     });
     if (this.viewerWants.has(viewerId)) this.applyView(viewerId);
   }
@@ -201,7 +216,11 @@ export class MeshTransport implements MediaTransport {
     if (tell && this.watching.has(peerId)) this.signal(peerId, { kind: "unwatch" });
     this.watching.delete(peerId);
     this.sentView.delete(peerId);
-    this.inc.get(peerId)?.pc.close();
+    const conn = this.inc.get(peerId);
+    if (conn) {
+      noteClosed(conn, tell ? "stopped watching" : "they left");
+      conn.pc.close();
+    }
     this.inc.delete(peerId);
   }
 
@@ -213,16 +232,26 @@ export class MeshTransport implements MediaTransport {
 
   describeStuck(peerId: string): string {
     const conn = this.inc.get(peerId);
-    return !conn
-      ? "their PC never sent an offer (the problem is on their side, check their log)"
-      : `offer received, connection is "${conn.pc.connectionState}", ` +
-          `routes here: ${summarizeRoutes(conn.localRoutes)}, from them: ${summarizeRoutes(conn.remoteRoutes)}`;
+    if (!conn) return "their PC never sent an offer (the problem is on their side, check their log)";
+    logConnectionReport(conn, "Still connecting", "warn").catch(() => {});
+    const types = (routes: Route[]) => summarizeRoutes(routes.map((r) => r.type));
+    return (
+      `offer received, connection is "${conn.pc.connectionState}", ` +
+      `routes here: ${types(conn.localRoutes)}, from them: ${types(conn.remoteRoutes)} (details below)`
+    );
   }
 
   private acceptOffer(from: string, sdp: string) {
-    if (!this.watching.has(from)) return;
-    log.info("watching", `Got the offer from ${this.nameOf(from)}`);
-    this.inc.get(from)?.pc.close();
+    if (!this.watching.has(from)) {
+      log.warn("watching", `Got an offer from ${this.nameOf(from)}, but I did not ask to watch them; ignoring it`);
+      return;
+    }
+    log.info("watching", `Got the offer from ${this.nameOf(from)}: ${describeSdp(sdp)}`);
+    const old = this.inc.get(from);
+    if (old) {
+      noteClosed(old, "a new offer replaced it");
+      old.pc.close();
+    }
     const pc = new RTCPeerConnection(RTC_CONFIG);
     const conn = new Conn(pc, "watching", `from ${this.nameOf(from)}`);
     this.inc.set(from, conn);
@@ -234,7 +263,7 @@ export class MeshTransport implements MediaTransport {
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        conn.localRoutes.push(e.candidate.type ?? "unknown");
+        noteLocalRoute(conn, e.candidate);
         this.signal(from, { kind: "ice", role: "viewer", candidate: e.candidate.toJSON() });
       }
     };
@@ -247,7 +276,7 @@ export class MeshTransport implements MediaTransport {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription({ type: "answer", sdp: tuneOpus(answer.sdp!) });
       this.signal(from, { kind: "answer", sdp: pc.localDescription!.sdp });
-      log.info("watching", `Sent the answer to ${this.nameOf(from)}`);
+      log.info("watching", `Sent the answer to ${this.nameOf(from)}: ${describeSdp(pc.localDescription!.sdp)}`);
     });
   }
 
@@ -261,7 +290,7 @@ export class MeshTransport implements MediaTransport {
       case "unwatch":
         log.info("sharing", `${this.nameOf(from)} stopped watching`);
         this.viewerWants.delete(from);
-        this.closeOut(from);
+        this.closeOut(from, "they stopped watching");
         break;
       case "view":
         this.viewerWants.set(from, Math.max(0, Number(data.height) || 0));
@@ -276,15 +305,20 @@ export class MeshTransport implements MediaTransport {
           log.warn("sharing", `Got an answer from ${this.nameOf(from)}, but no connection was waiting for it`);
           break;
         }
-        log.info("sharing", `Got the answer from ${this.nameOf(from)}`);
+        log.info("sharing", `Got the answer from ${this.nameOf(from)}: ${describeSdp(data.sdp)}`);
         conn.run("Applying the answer", () => conn.pc.setRemoteDescription({ type: "answer", sdp: data.sdp }));
         break;
       }
       case "ice": {
         const conn = data.role === "sharer" ? this.inc.get(from) : this.out.get(from);
-        if (!conn) break;
-        const type = data.candidate.candidate?.match(/ typ (\w+)/)?.[1];
-        if (type) conn.remoteRoutes.push(type);
+        if (!conn) {
+          log.warn(
+            data.role === "sharer" ? "watching" : "sharing",
+            `Got a network route from ${this.nameOf(from)}, but no connection with them is open; ignoring it`,
+          );
+          break;
+        }
+        noteRemoteRoute(conn, data.candidate);
         conn.run("Adding a network route", () => conn.pc.addIceCandidate(data.candidate));
         break;
       }
@@ -293,14 +327,20 @@ export class MeshTransport implements MediaTransport {
 
   removePeer(peerId: string) {
     this.viewerWants.delete(peerId);
-    this.closeOut(peerId);
+    this.closeOut(peerId, "they left");
     this.stopWatching(peerId, false);
   }
 
   close() {
     this.pub = null;
-    this.out.forEach((c) => c.pc.close());
-    this.inc.forEach((c) => c.pc.close());
+    this.out.forEach((c) => {
+      noteClosed(c, "left the room");
+      c.pc.close();
+    });
+    this.inc.forEach((c) => {
+      noteClosed(c, "left the room");
+      c.pc.close();
+    });
     this.out.clear();
     this.inc.clear();
     this.watching.clear();
