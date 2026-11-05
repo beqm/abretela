@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Native send prototype</title>
+<style>
+  body { margin: 0; background: #111; color: #ddd; font: 14px system-ui, sans-serif; }
+  video { width: 100%; max-height: 80vh; background: #000; display: block; }
+  pre { margin: 8px 16px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<video id="v" autoplay muted playsinline></video>
+<pre id="s">connecting...</pre>
+<script>
+const out = document.getElementById("s");
+const pc = new RTCPeerConnection();
+window.pc = pc;
+pc.ontrack = (e) => { document.getElementById("v").srcObject = e.streams[0] ?? new MediaStream([e.track]); };
+
+async function start() {
+  const { id, offer } = await (await fetch("/offer", { method: "POST" })).json();
+  await pc.setRemoteDescription(offer);
+  await pc.setLocalDescription(await pc.createAnswer());
+  // sem trickle: espera as rotas e manda a resposta inteira
+  await new Promise((r) => {
+    if (pc.iceGatheringState === "complete") return r();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && r();
+    setTimeout(r, 3000);
+  });
+  await fetch(`/answer/${id}`, { method: "POST", body: JSON.stringify(pc.localDescription) });
+}
+
+let last = null;
+async function stats() {
+  const report = await pc.getStats();
+  let text = `connection: ${pc.connectionState}, ICE: ${pc.iceConnectionState}`;
+  report.forEach((s) => {
+    if (s.type !== "inbound-rtp" || s.kind !== "video") return;
+    const codec = report.get(s.codecId);
+    const kbps = last ? Math.round(((s.bytesReceived - last.bytes) * 8) / (s.timestamp - last.t)) : 0;
+    last = { bytes: s.bytesReceived, t: s.timestamp };
+    window.lastVideo = {
+      codec: codec?.mimeType, fmtp: codec?.sdpFmtpLine, decoder: s.decoderImplementation,
+      width: s.frameWidth, height: s.frameHeight, fps: s.framesPerSecond, kbps,
+      framesDecoded: s.framesDecoded, packetsLost: s.packetsLost, freezes: s.freezeCount,
+      keyframes: s.keyFramesDecoded, plis: s.pliCount, nacks: s.nackCount,
+    };
+    text += `\n${JSON.stringify(window.lastVideo, null, 1)}`;
+  });
+  out.textContent = text;
+}
+setInterval(stats, 1000);
+start().catch((e) => (out.textContent = `failed: ${e}`));
+</script>
+</body>
+</html>

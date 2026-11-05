@@ -1,0 +1,15 @@
+[package]
+name = "native-send"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Protótipo isolado do envio nativo (ROADMAP, seção 2): não faz parte do app.
+[workspace]
+
+[dependencies]
+str0m = { version = "0.25.0", default-features = false, features = ["wincrypto"] }
+openh264 = "0.9.9"
+tiny_http = "0.12.0"
+serde_json = "1"
+openh264-sys2 = "0.9.9"
