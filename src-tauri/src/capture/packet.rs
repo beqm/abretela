@@ -63,6 +63,11 @@ impl VideoPacket {
         u16::from_le_bytes([self.0[4], self.0[5]])
     }
 
+    /// Os pixels (sem o cabeçalho).
+    pub fn pixels(&self) -> &[u8] {
+        &self.0[HEADER..]
+    }
+
     /// Onde escrever os pixels.
     pub fn pixels_mut(&mut self) -> &mut [u8] {
         &mut self.0[HEADER..]

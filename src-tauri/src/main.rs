@@ -7,6 +7,7 @@
 mod logging;
 mod app;
 mod capture;
+mod encode;
 mod room;
 mod tunnel;
 #[cfg(test)]
