@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0] - 2026-11-04
+
+### Correções
+- Quem digita a senha errada agora vê "senha errada" na hora. Antes, às vezes o app ficava 45 segundos tentando entrar e terminava com "não foi possível conectar".
+- O app não trava mais ao trocar de tela durante a transmissão quando a nova fonte tem faixas diferentes da anterior (por exemplo, com som para sem som) e alguém está assistindo.
+
+### Por dentro
+- O código foi reorganizado em peças separadas (sala, transmissão, captura, túnel), cada uma trocável sem mexer no resto. Isso prepara o envio da tela direto pelo app e as versões para Mac e Linux.
+- Testes automáticos novos rodam a cada mudança, cobrindo o convite, a sala, a qualidade por espectador e o formato da captura.
+- Compatível com quem ainda está na 0.3.0: as duas versões continuam se vendo na mesma sala.
+
 ## [0.3.0] - 2026-11-03
 
 ### Novidades
