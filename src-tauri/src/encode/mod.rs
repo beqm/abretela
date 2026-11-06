@@ -7,9 +7,6 @@
 //! de vídeo pelo NVENC/AMF/QuickSync, com o codificador do próprio Windows no
 //! processador como reserva).
 
-// ainda sem uso no app: o transporte nativo (ROADMAP 3b) é quem vai usar
-#![allow(dead_code)]
-
 use crate::capture::{contracts::BoxError, packet::VideoPacket};
 use std::time::Duration;
 
@@ -43,6 +40,8 @@ pub trait VideoEncoder: Send {
     fn describe(&self) -> String;
     /// Codifica pela placa de vídeo?
     fn hardware(&self) -> bool;
+    /// Largura e altura para as quais foi aberto.
+    fn size(&self) -> (u32, u32);
     /// Entrega um frame; devolve os frames codificados que ficaram prontos
     /// (normalmente um, às vezes nenhum se o codificador segurou um pouco).
     /// `keyframe` pede um quadro-chave.

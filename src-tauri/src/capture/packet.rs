@@ -34,6 +34,7 @@ impl PixelFormat {
 }
 
 /// Um frame de vídeo pronto para enviar: cabeçalho + pixels.
+#[derive(Clone)]
 pub struct VideoPacket(Vec<u8>);
 
 impl VideoPacket {

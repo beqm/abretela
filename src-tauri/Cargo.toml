@@ -27,6 +27,8 @@ tauri-plugin-opener = "2.7.2"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-single-instance = { version = "2.5.4", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
+# WebRTC do envio nativo (ROADMAP, seção 2); criptografia do próprio Windows
+str0m = { version = "0.25.0", default-features = false, features = ["wincrypto"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Graphics_Dwm", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
@@ -39,3 +41,5 @@ codegen-units = 1
 [dev-dependencies]
 # cliente WebSocket para o teste de integração do servidor da sala
 tokio-tungstenite = "0.29"
+# página de teste do envio nativo (send/tests.rs)
+tiny_http = "0.12.0"

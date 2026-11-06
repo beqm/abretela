@@ -8,7 +8,8 @@ import { Signaling, type PeerInfo, type ServerMsg, type SignalData } from "./sig
 import { Thumbs } from "./thumbs";
 import { describeTracks } from "./transport/diagnostics";
 import { MeshTransport } from "./transport/mesh";
-import type { MediaTransport, Publication, RemoteView } from "./transport/types";
+import { NativeTransport } from "./transport/native";
+import type { MediaTransport, Publication, RemoteView, TransportHost } from "./transport/types";
 
 export class RoomClient {
   selfId = "";
@@ -45,15 +46,18 @@ export class RoomClient {
     url: string,
     private name: string,
     password: string,
+    /** Envio nativo (experimental): minha tela sai codificada pelo próprio app. */
+    options: { nativeSend?: boolean } = {},
   ) {
     this.signaling = new Signaling(url, name, password);
     this.signaling.onMessage = (msg) => this.handle(msg);
     this.signaling.onClosed = () => this.onClosed();
-    this.transport = new MeshTransport({
+    const host: TransportHost = {
       signal: (to, data) => this.signaling.signal(to, data),
       nameOf: (id) => this.nameOf(id),
       onRemote: (id, patch) => this.setView(id, patch),
-    });
+    };
+    this.transport = options.nativeSend ? new NativeTransport(host) : new MeshTransport(host);
     this.thumbCache = new Thumbs(
       (to, data) => this.signaling.signal(to, data),
       (id) => !!this.peers.get(id)?.sharing,

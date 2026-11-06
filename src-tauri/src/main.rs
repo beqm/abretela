@@ -9,6 +9,7 @@ mod app;
 mod capture;
 mod encode;
 mod room;
+mod send;
 mod tunnel;
 #[cfg(test)]
 mod e2e_test;
@@ -85,6 +86,11 @@ fn main() {
             app::commands::set_live,
             app::commands::set_tray_texts,
             app::commands::log,
+            send::commands::native_viewer_open,
+            send::commands::native_viewer_answer,
+            send::commands::native_viewer_candidate,
+            send::commands::native_viewer_close,
+            send::commands::native_send_stop,
             app::commands::log_network,
             startup::splash_status,
             startup::splash_done,

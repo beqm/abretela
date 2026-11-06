@@ -27,7 +27,16 @@ function detectLang(): Lang {
   return (LANGUAGES.find((l) => l.code === nav)?.code ?? "pt") as Lang;
 }
 
-type Prefs = { name: string; lang: Lang; theme: Theme; closeToTray: boolean; sounds: boolean; hwAccel: boolean };
+type Prefs = {
+  name: string;
+  lang: Lang;
+  theme: Theme;
+  closeToTray: boolean;
+  sounds: boolean;
+  hwAccel: boolean;
+  /** Envio nativo (experimental, ainda sem opção na tela): mude no localStorage. */
+  nativeSend: boolean;
+};
 
 /** Nome salvo pela tela inicial em versões antigas (até a 0.2.0). */
 function legacyName(): string {
@@ -50,6 +59,7 @@ function load(): Prefs {
     closeToTray: saved.closeToTray ?? true,
     sounds: saved.sounds ?? true,
     hwAccel: saved.hwAccel ?? true,
+    nativeSend: saved.nativeSend ?? false,
   };
 }
 
@@ -111,6 +121,10 @@ export const prefs = {
   set hwAccel(v: boolean) {
     state.hwAccel = v;
     apply();
+  },
+  /** Envio nativo (ROADMAP, seção 2): experimental, sem opção na tela ainda. */
+  get nativeSend() {
+    return state.nativeSend;
   },
 };
 

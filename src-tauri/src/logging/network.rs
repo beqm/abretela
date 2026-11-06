@@ -2,7 +2,7 @@
 //! gateway, MTU e velocidade. Ajuda a achar VPNs (Radmin, Hamachi, ZeroTier,
 //! Tailscale...) e redes estranhas quando ninguém consegue se conectar.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use windows_sys::Win32::{
     Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
@@ -34,7 +34,7 @@ fn wide_to_string(p: *const u16) -> String {
     }
 }
 
-fn sockaddr_to_string(a: &SOCKET_ADDRESS) -> Option<String> {
+fn sockaddr_to_ip(a: &SOCKET_ADDRESS) -> Option<IpAddr> {
     let sa = a.lpSockaddr as *const SOCKADDR;
     if sa.is_null() {
         return None;
@@ -43,15 +43,19 @@ fn sockaddr_to_string(a: &SOCKET_ADDRESS) -> Option<String> {
         match (*sa).sa_family {
             AF_INET => {
                 let v4 = &*(sa as *const SOCKADDR_IN);
-                Some(Ipv4Addr::from(u32::from_be(v4.sin_addr.S_un.S_addr)).to_string())
+                Some(Ipv4Addr::from(u32::from_be(v4.sin_addr.S_un.S_addr)).into())
             }
             AF_INET6 => {
                 let v6 = &*(sa as *const SOCKADDR_IN6);
-                Some(Ipv6Addr::from(v6.sin6_addr.u.Byte).to_string())
+                Some(Ipv6Addr::from(v6.sin6_addr.u.Byte).into())
             }
             _ => None,
         }
     }
+}
+
+fn sockaddr_to_string(a: &SOCKET_ADDRESS) -> Option<String> {
+    sockaddr_to_ip(a).map(|ip| ip.to_string())
 }
 
 fn if_type(t: u32) -> &'static str {
@@ -95,8 +99,8 @@ fn is_teredo(ip: &str) -> bool {
     ip.starts_with("2001:0:") || ip.starts_with("2001::")
 }
 
-/// Escreve uma linha por placa de rede ligada (e conta as desligadas).
-pub fn log_adapters(why: &str) {
+/// A lista crua do Windows (as estruturas apontam para dentro do vetor).
+fn query() -> Result<Vec<u64>, u32> {
     let flags = GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
     let mut size: u32 = 16 * 1024;
     let mut buf: Vec<u64> = Vec::new(); // u64 para alinhar a estrutura
@@ -117,9 +121,48 @@ pub fn log_adapters(why: &str) {
         }
     }
     if rc != NO_ERROR {
-        log_warn!("network", "Could not list the network adapters (error {rc})");
-        return;
+        return Err(rc);
     }
+    Ok(buf)
+}
+
+/// Endereços onde dá para receber conexões: placas ligadas, sem loopback,
+/// sem endereço automático (169.254, fe80) e sem Teredo. Usado pelo envio
+/// nativo para criar as rotas "rede local".
+pub fn usable_addresses() -> Vec<IpAddr> {
+    let Ok(buf) = query() else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut p = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !p.is_null() {
+        let a = unsafe { &*p };
+        p = a.Next;
+        if a.IfType == 24 || a.OperStatus != 1 {
+            continue;
+        }
+        let mut u = a.FirstUnicastAddress;
+        while !u.is_null() {
+            let ua = unsafe { &*u };
+            if let Some(ip) = sockaddr_to_ip(&ua.Address) {
+                let text = ip.to_string();
+                if !ip.is_loopback() && !is_link_local(&text) && !is_teredo(&text) && !out.contains(&ip) {
+                    out.push(ip);
+                }
+            }
+            u = ua.Next;
+        }
+    }
+    out
+}
+
+/// Escreve uma linha por placa de rede ligada (e conta as desligadas).
+pub fn log_adapters(why: &str) {
+    let buf = match query() {
+        Ok(b) => b,
+        Err(rc) => {
+            log_warn!("network", "Could not list the network adapters (error {rc})");
+            return;
+        }
+    };
 
     let mut lines = Vec::new();
     let mut down = Vec::new();
@@ -211,5 +254,6 @@ mod tests {
     #[test]
     fn lists_adapters_without_crashing() {
         super::log_adapters("in a test");
+        println!("usable: {:?}", super::usable_addresses());
     }
 }

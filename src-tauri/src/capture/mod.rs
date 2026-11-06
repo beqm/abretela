@@ -58,13 +58,18 @@ pub fn stop() {
 }
 
 /// Começa a capturar `id`; devolve a URL do WebSocket local com os frames.
-pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<String, String> {
+/// Com `native_send` (bitrate máximo), os frames também vão para o envio
+/// nativo (`send/`), que codifica e manda direto aos espectadores.
+pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_send: Option<u32>) -> Result<String, String> {
     stop();
     let token = random_token();
     let stop = Arc::new(AtomicBool::new(false));
     let fps = fps.clamp(5, 60);
     let (sink, url) = WebSocketSink::open(&token, fps, stop.clone())?;
-    let sink: Arc<dyn FrameSink> = sink;
+    let sink: Arc<dyn FrameSink> = match native_send {
+        Some(bitrate) => Arc::new(crate::send::Tee(sink, crate::send::start(fps, bitrate))),
+        None => sink,
+    };
     let Some(info) = VIDEO.inspect(id) else {
         stop.store(true, Ordering::Relaxed);
         WebSocketSink::discard(&token);
@@ -72,10 +77,11 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<
     };
     log_info!(
         "capture",
-        "Starting capture of {} at up to {height}p {fps}fps, audio {}, hardware acceleration {}",
+        "Starting capture of {} at up to {height}p {fps}fps, audio {}, hardware acceleration {}{}",
         info.description,
         if audio { "on" } else { "off" },
-        if gpu { "on" } else { "off" }
+        if gpu { "on" } else { "off" },
+        if native_send.is_some() { ", native sending (experimental)" } else { "" }
     );
 
     let config = VideoConfig { max_height: height, fps, gpu };
@@ -100,6 +106,16 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool) -> Result<
 
     *SESSION.lock().unwrap() = Some(Session { token, stop, stop_video: Some(video.stop) });
     Ok(url)
+}
+
+/// Para os testes de outros módulos: a captura de uma tela mandando os
+/// frames direto para `sink` (sem o WebSocket).
+#[cfg(test)]
+pub fn start_video_for_test(sink: Arc<dyn FrameSink>, height: u32, fps: u32) -> (Arc<AtomicBool>, contracts::RunningVideo) {
+    let screen = list_sources().into_iter().find(|s| s.kind == "screen").expect("a screen").id;
+    let stop = Arc::new(AtomicBool::new(false));
+    let video = VIDEO.start(&screen, VideoConfig { max_height: height, fps, gpu: true }, sink, stop.clone()).unwrap();
+    (stop, video)
 }
 
 /// Para a sessão atual; com `token`, só se for aquela sessão.
@@ -152,7 +168,7 @@ mod tests {
         println!("thumbnail: {:?} bytes em {:?}", thumb.map(|t| t.len()), t.elapsed());
 
         let gpu = std::env::var("CAPTURE_GPU").map_or(true, |v| v != "0");
-        let url = start(&screen, height, fps, true, gpu).unwrap();
+        let url = start(&screen, height, fps, true, gpu, None).unwrap();
         println!("url: {url}");
         let token = url.rsplit('/').next().unwrap();
         let (mut video, mut audio) = sink::take_waiting(token).unwrap();

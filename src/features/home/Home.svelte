@@ -100,7 +100,9 @@
         hostName: trimmedName,
         lang: prefs.lang,
       });
-      const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password);
+      const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
+        nativeSend: prefs.nativeSend,
+      });
       try {
         await client.connect();
       } catch (e) {
@@ -128,7 +130,7 @@
     }
     busy = t("connecting");
     try {
-      const client = new RoomClient(invite.ws, trimmedName, password);
+      const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: prefs.nativeSend });
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });

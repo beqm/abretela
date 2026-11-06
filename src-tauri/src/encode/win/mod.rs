@@ -501,6 +501,10 @@ impl VideoEncoder for MfEncoder {
         self.hardware
     }
 
+    fn size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<Vec<EncodedFrame>, BoxError> {
         if (frame.width() as u32, frame.height() as u32) != (self.config.width, self.config.height) {
             return Err(format!(

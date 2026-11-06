@@ -6,7 +6,7 @@
   import type { RemoteView } from "../../lib/transport/types";
   import { startNativeCapture, type Source } from "../../lib/capture/native";
   import { describeError, log } from "../../lib/log";
-  import type { Quality } from "../../lib/quality";
+  import { videoBitrate, type Quality } from "../../lib/quality";
   import { prefs, t } from "../../lib/prefs.svelte";
   import { sounds } from "../../lib/sounds";
   import SourcePicker from "./SourcePicker.svelte";
@@ -215,6 +215,7 @@
         pick.quality.fps,
         pick.audio,
         prefs.hwAccel,
+        prefs.nativeSend ? videoBitrate(pick.quality) : undefined,
       );
       const title =
         pick.source.kind === "screen"

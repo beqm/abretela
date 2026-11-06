@@ -37,8 +37,10 @@ export async function startNativeCapture(
   fps: number,
   audio: boolean,
   gpu: boolean,
+  /** Bitrate máximo do envio nativo (experimental); sem ele, só o caminho de sempre. */
+  nativeSend?: number,
 ): Promise<NativeCapture> {
-  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu });
+  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu, nativeSend });
   const token = url.split("/").pop()!;
 
   const video = new MediaStreamTrackGenerator({ kind: "video" });

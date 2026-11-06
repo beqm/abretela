@@ -81,8 +81,34 @@ Partes, cada uma saindo e testada antes da próxima:
   abaixo de 7,6 ms), decodifica limpo no ffmpeg. Testes manuais:
   `encode_hardware`, `encode_software` e `capture_encode_smoke` (`--ignored`).
   Ainda sem uso no app. Falta testar em placas NVIDIA e Intel.
-- [ ] **3b. Transporte nativo** com str0m: UDP, STUN, rotas pela sinalização
-  da sala, um `MediaTransport` novo (vídeo primeiro).
+- [x] **3b. Transporte nativo** (`src-tauri/src/send/` e
+  `src/lib/transport/native.ts`), só vídeo. A captura alimenta a prévia local
+  (WebSocket, como antes) e o envio nativo; uma thread codifica o frame mais
+  novo uma vez e manda a todos os conectados. Cada espectador tem um `Rtc` do
+  str0m, um socket UDP por placa de rede (rota "rede local") e STUN próprio
+  (`send/stun.rs`, rota "public address"); as rotas vão e vêm aos poucos pela
+  sala (trickle) e as rotas mDNS do navegador são puladas (viram "descobertas"
+  na checagem). Já entram: quadro-chave no máximo 1/s, bitrate pela menor
+  estimativa, tela parada repete o último frame 1x/s (o WGC só entrega frame
+  quando a tela muda; sem isso quem entra vê preto).
+  - Ligar: preferência escondida `nativeSend` (no `localStorage`,
+    `abretela.prefs` → `"nativeSend": true`), sem opção na tela ainda.
+  - Testado: `native_send_browser` (`--ignored`, página só em 127.0.0.1)
+    com dois espectadores Chromium: conecta em ~0,1 s, H.264 1080p
+    decodificado, 0% de perda por 2,5 min, fecha limpo. Testes do
+    `NativeTransport` com o Rust simulado e um espectador da malha.
+  - Com a tela em uso (navegador): imagem 1080p certa, 0% de perda, nenhum
+    pedido de quadro-chave, ~4–6 Mbps. Mas a ~40 fps (debug) e ~44–54 fps
+    (release), não 60: cada frame leva ~17 ms no `encode` (debug). Suspeitas:
+    a espera do frame codificado dormindo de 0,5–1 ms (`encode_async` espera
+    cada frame sair antes do próximo, sem sobrepor) e a cópia do NV12 pela
+    memória do processador. Ver na 3d.
+  - Falta testar: sala real entre PCs/redes diferentes e com o app nos dois
+    lados.
+  - Notado: com a tela parada o codificador da AMD ainda gasta ~16 KB por
+    frame repetido (enche até o bitrate); ver na 3d.
+  - A prévia local ainda passa pela ponte WebSocket: para medir o ganho de
+    verdade (3e) ela precisa ficar leve (menos fps/resolução) no modo nativo.
 - [ ] **3c. Áudio Opus** no envio nativo.
 - [ ] **3d. Políticas de banda**: limite de quadros-chave, espectador lento,
   qualidade por espectador.
