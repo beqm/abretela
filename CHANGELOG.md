@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0] - 2026-11-09
+
+### Novidades
+- **Envio nativo (experimental)**: nova opção em Configurações > Geral > Desempenho. Sua tela passa a ser codificada uma vez pela placa de vídeo e enviada pelo próprio app a todos que assistem, em vez de uma vez para cada pessoa. Isso deve deixar a transmissão mais leve, principalmente com várias pessoas assistindo.
+  - O som vai junto, sincronizado com a imagem.
+  - Cada pessoa recebe a qualidade do tamanho em que está vendo, e quem tem internet lenta recebe uma qualidade menor sem piorar a imagem dos outros.
+  - Vem desligada e vale a partir da próxima sala em que você entrar. Quem assiste não precisa ligar nada nem atualizar.
+  - Se testar, conte como foi e mande o log do dia (o arquivo `abretela-<data>.log` na pasta `logs`, onde o AbreTela está instalado): é o que vai decidir se ela vira o padrão.
+
+### Melhorias
+- O log das conexões ficou bem mais detalhado, para descobrir por que alguém não consegue assistir: as placas de rede do PC (avisando VPNs e adaptadores virtuais), as rotas tentadas entre os dois lados, em que etapa a conexão falhou e o motivo mais provável.
+- Enquanto você transmite, o log mostra a cada 30 segundos quanto do processador e da placa de vídeo o app está usando.
+
+### Por dentro
+- Compatível com quem ainda está na 0.4.0 e na 0.3.0: todo mundo continua se vendo na mesma sala, com ou sem o envio nativo.
+
 ## [0.4.0] - 2026-11-04
 
 ### Correções
