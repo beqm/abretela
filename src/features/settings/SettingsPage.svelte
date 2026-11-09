@@ -185,6 +185,12 @@
               checked={prefs.hwAccel}
               onchange={(v) => (prefs.hwAccel = v)}
             />
+            <Toggle
+              label={t("nativeSend")}
+              hint={t("nativeSendHint")}
+              checked={prefs.nativeSend}
+              onchange={(v) => (prefs.nativeSend = v)}
+            />
           </div>
         </section>
       {:else if section === "appearance"}

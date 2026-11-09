@@ -65,15 +65,20 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
     let token = random_token();
     let stop = Arc::new(AtomicBool::new(false));
     let fps = fps.clamp(5, 60);
-    let (sink, url) = WebSocketSink::open(&token, fps, stop.clone())?;
-    let sink: Arc<dyn FrameSink> = match native_send {
-        Some(bitrate) => Arc::new(crate::send::Tee(sink, crate::send::start(fps, bitrate))),
-        None => sink,
-    };
+    // no envio nativo a prévia local fica leve (só para você ver a sua tela)
+    let preview_fps = if native_send.is_some() { fps.min(crate::send::PREVIEW_FPS) } else { fps };
+    let (sink, url) = WebSocketSink::open(&token, preview_fps, stop.clone())?;
     let Some(info) = VIDEO.inspect(id) else {
         stop.store(true, Ordering::Relaxed);
         WebSocketSink::discard(&token);
         return Err("fonte inválida".into());
+    };
+    let has_audio = audio && info.audio.is_some();
+    let sink: Arc<dyn FrameSink> = match native_send {
+        Some(bitrate) => {
+            Arc::new(crate::send::Tee::new(sink, crate::send::start(fps, bitrate, has_audio, gpu), preview_fps))
+        }
+        None => sink,
     };
     log_info!(
         "capture",
@@ -81,7 +86,11 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
         info.description,
         if audio { "on" } else { "off" },
         if gpu { "on" } else { "off" },
-        if native_send.is_some() { ", native sending (experimental)" } else { "" }
+        if native_send.is_some() {
+            format!(", native sending (experimental), my own preview at {preview_fps} fps")
+        } else {
+            String::new()
+        }
     );
 
     let config = VideoConfig { max_height: height, fps, gpu };
@@ -104,6 +113,10 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
         });
     }
 
+    crate::logging::perf::watch(
+        if native_send.is_some() { "native sending" } else { "sending through the WebView" },
+        stop.clone(),
+    );
     *SESSION.lock().unwrap() = Some(Session { token, stop, stop_video: Some(video.stop) });
     Ok(url)
 }

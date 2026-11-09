@@ -2,10 +2,12 @@
 //! socket UDP por placa de rede (rotas "rede local"), STUN em cada um (rotas
 //! "public address") e a thread que junta tudo.
 //!
-//! Tudo o que chega (rede, frames, resposta e rotas do outro lado) entra por
-//! um canal só, e a thread processa em ordem.
+//! Tudo o que chega (rede, frames, som, resposta e rotas do outro lado) entra
+//! por um canal só, e a thread processa em ordem. Vídeo e áudio saem no mesmo
+//! stream ("abretela"), então o navegador os junta numa `MediaStream` só e
+//! sincroniza pelo tempo de cada um.
 
-use super::{stun, Encoded, Outgoing, Sender, Signals};
+use super::{audio::SAMPLE_RATE, stun, Encoded, Outgoing, Sender, Signals};
 use crate::encode::has_idr;
 use std::{
     net::{SocketAddr, ToSocketAddrs, UdpSocket},
@@ -34,6 +36,8 @@ pub enum ViewerMsg {
     /// Resposta do STUN: `base` (socket local) é visto como `public`.
     PublicAddress { base: SocketAddr, public: SocketAddr, server: String },
     Frame(Arc<Encoded>),
+    /// Um pacote Opus (20 ms).
+    Audio(Arc<Encoded>),
     Answer(String),
     RemoteCandidate(String),
     Close,
@@ -62,6 +66,7 @@ pub fn spawn(
     let mut rtc = Rtc::builder()
         .clear_codecs()
         .enable_h264(true)
+        .enable_opus(true, false)
         .enable_bwe(Some(Bitrate::bps(bitrate as u64)))
         .set_stats_interval(Some(HEALTH_EVERY))
         .build(Instant::now());
@@ -86,9 +91,17 @@ pub fn spawn(
 
     let mut api = rtc.sdp_api();
     let mid = api.add_media(MediaKind::Video, Direction::SendOnly, Some("abretela".into()), Some("screen".into()), None);
+    let audio_mid = sender.has_audio.load(Ordering::Relaxed).then(|| {
+        api.add_media(MediaKind::Audio, Direction::SendOnly, Some("abretela".into()), Some("sound".into()), None)
+    });
     let (offer, pending) = api.apply().ok_or("could not create the offer")?;
     signals.send(&id, Outgoing::Offer { sdp: offer.to_sdp_string() });
-    log_info!("sharing", "Sent the native offer {who} (H.264, {} routes inside)", sockets.len());
+    log_info!(
+        "sharing",
+        "Sent the native offer {who} ({}, {} routes inside)",
+        if audio_mid.is_some() { "H.264 video + Opus audio" } else { "H.264 video, no audio" },
+        sockets.len()
+    );
 
     // rotas públicas: pergunta aos servidores STUN por cada socket IPv4/IPv6
     for s in &sockets {
@@ -107,8 +120,11 @@ pub fn spawn(
         rtc,
         sockets,
         mid,
+        audio_mid,
         pending: Some(pending),
         pt: None,
+        audio_pt: None,
+        audio_sent: 0,
         sender,
         signals,
         closed,
@@ -159,8 +175,11 @@ struct Session {
     rtc: Rtc,
     sockets: Vec<Socket>,
     mid: Mid,
+    audio_mid: Option<Mid>,
     pending: Option<SdpPendingOffer>,
     pt: Option<Pt>,
+    audio_pt: Option<Pt>,
+    audio_sent: u64,
     sender: Arc<Sender>,
     signals: Arc<dyn Signals>,
     closed: Arc<AtomicBool>,
@@ -217,10 +236,11 @@ impl Session {
         self.signals.send(&self.id, Outgoing::State { state: "closed".into() });
         log_info!(
             "sharing",
-            "Closed the native connection {} {} ({reason}; {} frames sent)",
+            "Closed the native connection {} {} ({reason}; {} frames and {} audio packets sent)",
             self.who,
             self.since(),
-            self.frames_sent
+            self.frames_sent,
+            self.audio_sent
         );
     }
 
@@ -256,9 +276,17 @@ impl Session {
                 let answer = SdpAnswer::from_sdp_string(&sdp).map_err(|e| format!("unreadable answer: {e}"))?;
                 self.rtc.sdp_api().accept_answer(pending, answer).map_err(|e| format!("answer refused: {e}"))?;
                 self.pt = self.h264_pt();
+                self.audio_pt = self.opus_pt();
+                let audio = match (self.audio_mid, self.audio_pt) {
+                    (None, _) => "no audio".to_string(),
+                    (Some(_), Some(pt)) => format!("Opus payload {pt}"),
+                    (Some(_), None) => "the audio was refused".to_string(),
+                };
                 match self.pt {
-                    Some(pt) => log_info!("sharing", "Got the answer {}: H.264 payload {pt} {}", self.who, self.since()),
-                    None => log_error!("sharing", "The answer {} has no H.264 we can send!", self.who),
+                    Some(pt) => {
+                        log_info!("sharing", "Got the answer {}: H.264 payload {pt}, {audio} {}", self.who, self.since())
+                    }
+                    None => log_error!("sharing", "The answer {} has no H.264 we can send! ({audio})", self.who),
                 }
             }
             ViewerMsg::RemoteCandidate(line) => {
@@ -284,6 +312,7 @@ impl Session {
                 self.rtc.add_remote_candidate(c);
             }
             ViewerMsg::Frame(frame) => self.send_frame(&frame)?,
+            ViewerMsg::Audio(packet) => self.send_audio(&packet)?,
             ViewerMsg::Close => {}
         }
         Ok(())
@@ -304,13 +333,42 @@ impl Session {
             self.waiting_keyframe = false;
             log_info!("sharing", "First native video frame out {} {}", self.who, self.since());
         }
+        let wallclock = self.sender.started + frame.timestamp;
         let Some(writer) = self.rtc.writer(self.mid) else { return Ok(()) };
         let rtp_time = MediaTime::new((frame.timestamp.as_micros() as u64) * 90 / 1000, Frequency::NINETY_KHZ);
         writer
-            .write(pt, Instant::now(), rtp_time, frame.data.clone())
+            .write(pt, wallclock, rtp_time, frame.data.clone())
             .map_err(|e| format!("could not send a frame: {e}"))?;
         self.frames_sent += 1;
         Ok(())
+    }
+
+    /// Um pacote Opus. O tempo é do mesmo relógio do vídeo (desde o começo da
+    /// transmissão), e o `wallclock` igual nos dois deixa o navegador
+    /// sincronizar som e imagem.
+    fn send_audio(&mut self, packet: &Encoded) -> Result<(), String> {
+        let (Some(mid), Some(pt)) = (self.audio_mid, self.audio_pt) else { return Ok(()) };
+        if !self.connected {
+            return Ok(());
+        }
+        let wallclock = self.sender.started + packet.timestamp;
+        let Some(writer) = self.rtc.writer(mid) else { return Ok(()) };
+        let samples = packet.timestamp.as_micros() as u64 * SAMPLE_RATE as u64 / 1_000_000;
+        writer
+            .write(pt, wallclock, MediaTime::new(samples, Frequency::FORTY_EIGHT_KHZ), packet.data.clone())
+            .map_err(|e| format!("could not send audio: {e}"))?;
+        if self.audio_sent == 0 {
+            log_info!("sharing", "First native audio packet out {} {}", self.who, self.since());
+        }
+        self.audio_sent += 1;
+        Ok(())
+    }
+
+    /// O Opus que o outro lado aceitou.
+    fn opus_pt(&mut self) -> Option<Pt> {
+        let writer = self.rtc.writer(self.audio_mid?)?;
+        let pt = writer.payload_params().find(|p| p.spec().codec == Codec::Opus).map(|p| p.pt());
+        pt
     }
 
     /// O H.264 Constrained Baseline com packetization-mode 1 que o outro lado aceitou.
@@ -381,16 +439,18 @@ impl Session {
                     self.last_estimate = bps;
                 }
             }
-            Event::MediaEgressStats(s) => {
+            // uma linha só por espectador: a do vídeo (o áudio entra na contagem)
+            Event::MediaEgressStats(s) if s.mid == self.mid => {
                 let loss = s.loss.map(|l| format!("{:.1}% lost", l * 100.0)).unwrap_or_else(|| "loss ?".into());
                 let rtt = s.rtt.map(|r| format!("{} ms", r.as_millis())).unwrap_or_else(|| "?".into());
                 log_info!(
                     "sharing",
-                    "Native health {} {}: {} frames sent, {} KB, {loss}, round trip {rtt}, \
-                     {} resend requests, {} keyframe requests",
+                    "Native health {} {}: {} frames and {} audio packets sent, {} KB of video, {loss}, \
+                     round trip {rtt}, {} resend requests, {} keyframe requests",
                     self.who,
                     self.since(),
                     self.frames_sent,
+                    self.audio_sent,
                     s.bytes / 1024,
                     s.nacks,
                     s.plis + s.firs,

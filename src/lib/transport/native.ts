@@ -4,7 +4,7 @@
 // malha, `mesh.ts`), e quem assiste não percebe diferença: as mensagens
 // (offer/answer/ice) são as mesmas do WebRTC do WebView.
 //
-// Por enquanto só vídeo (áudio é a parte 3c) e ligado só pela preferência
+// Vídeo (H.264) e som (Opus) saem do Rust no mesmo stream. Ligado só pela preferência
 // escondida `nativeSend`.
 
 import { invoke } from "@tauri-apps/api/core";

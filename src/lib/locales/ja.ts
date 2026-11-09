@@ -29,6 +29,8 @@ export const ja: Messages = {
   performance: "パフォーマンス",
   hwAccel: "ハードウェアアクセラレーション",
   hwAccelHint: "キャプチャとエンコードにグラフィックボードを使用します。次回の配信から適用されます",
+  nativeSend: "ネイティブ送信（試験的）",
+  nativeSendHint: "画面をグラフィックボードで一度だけエンコードし、アプリが視聴者全員に直接送ります。視聴者ごとのエンコードはしません。次のルームから適用されます",
   trayOpen: "AbreTela を開く",
   trayQuit: "終了",
   trayLive: "AbreTela — 配信中",

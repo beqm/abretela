@@ -34,7 +34,7 @@ type Prefs = {
   closeToTray: boolean;
   sounds: boolean;
   hwAccel: boolean;
-  /** Envio nativo (experimental, ainda sem opção na tela): mude no localStorage. */
+  /** Envio nativo (experimental). */
   nativeSend: boolean;
 };
 
@@ -122,9 +122,14 @@ export const prefs = {
     state.hwAccel = v;
     apply();
   },
-  /** Envio nativo (ROADMAP, seção 2): experimental, sem opção na tela ainda. */
+  /** Envio nativo (ROADMAP, seção 2, experimental): minha tela é codificada e
+   * mandada pelo próprio app. Vale a partir da próxima sala. */
   get nativeSend() {
     return state.nativeSend;
+  },
+  set nativeSend(v: boolean) {
+    state.nativeSend = v;
+    apply();
   },
 };
 

@@ -29,6 +29,8 @@ export const zh: Messages = {
   performance: "性能",
   hwAccel: "硬件加速",
   hwAccelHint: "使用显卡进行采集和编码。下次直播时生效",
+  nativeSend: "原生发送（实验性）",
+  nativeSendHint: "你的屏幕只用显卡编码一次，由应用直接发送给所有观看者，而不是每人编码一次。从下一个房间开始生效",
   trayOpen: "打开 AbreTela",
   trayQuit: "退出",
   trayLive: "AbreTela — 直播中",

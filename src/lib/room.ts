@@ -57,13 +57,17 @@ export class RoomClient {
       nameOf: (id) => this.nameOf(id),
       onRemote: (id, patch) => this.setView(id, patch),
     };
-    this.transport = options.nativeSend ? new NativeTransport(host) : new MeshTransport(host);
+    this.nativeSend = !!options.nativeSend;
+    this.transport = this.nativeSend ? new NativeTransport(host) : new MeshTransport(host);
     this.thumbCache = new Thumbs(
       (to, data) => this.signaling.signal(to, data),
       (id) => !!this.peers.get(id)?.sharing,
       () => this.emit(),
     );
   }
+
+  /** Esta sala usa o envio nativo (escolhido ao entrar; mudar a opção vale na próxima sala). */
+  readonly nativeSend: boolean;
 
   /** Prévias das telas de quem está ao vivo (pedidas ao passar o mouse). */
   get thumbs() {

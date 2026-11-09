@@ -9,13 +9,17 @@
 //! - Cada espectador é uma thread com o próprio `Rtc` do str0m e sockets UDP
 //!   (`viewer.rs`); as mensagens para a sala saem por [`Signals`].
 //!
-//! Por enquanto só vídeo (o áudio é a parte 3c).
+//! - O som da captura vira Opus (`audio.rs`), também uma vez para todos.
 
+mod audio;
 pub mod commands;
 pub mod stun;
 mod viewer;
 
-use crate::capture::{contracts::FrameSink, packet::VideoPacket};
+use crate::capture::{
+    contracts::FrameSink,
+    packet::{VideoPacket, HEADER},
+};
 use crate::encode::{self, EncodedFrame, EncoderConfig, VideoEncoder};
 use axum::body::Bytes;
 use serde::Serialize;
@@ -83,12 +87,17 @@ pub struct Sender {
     config: Mutex<SendConfig>,
     started: Instant,
     next_session: std::sync::atomic::AtomicU64,
+    /// A captura tem som (decide se a oferta leva uma faixa de áudio).
+    has_audio: AtomicBool,
+    audio: Mutex<Option<audio::AudioEncoder>>,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct SendConfig {
     fps: u32,
     max_bitrate: u32,
+    /// "Aceleração de hardware" ligada: codifica pela placa de vídeo.
+    gpu: bool,
 }
 
 static SENDER: Mutex<Option<Arc<Sender>>> = Mutex::new(None);
@@ -99,12 +108,17 @@ fn current() -> Option<Arc<Sender>> {
 
 /// Liga (ou reaproveita, ao trocar de tela) o envio nativo e devolve o
 /// destino dos frames da captura.
-pub fn start(fps: u32, max_bitrate: u32) -> Arc<dyn FrameSink> {
+pub fn start(fps: u32, max_bitrate: u32, has_audio: bool, gpu: bool) -> Arc<dyn FrameSink> {
     let mut slot = SENDER.lock().unwrap();
+    let audio_text = if has_audio { "with audio" } else { "no audio" };
     if let Some(s) = slot.as_ref().filter(|s| s.running.load(Ordering::Relaxed)) {
-        *s.config.lock().unwrap() = SendConfig { fps, max_bitrate };
+        *s.config.lock().unwrap() = SendConfig { fps, max_bitrate, gpu };
         s.keyframe.store(true, Ordering::Relaxed);
-        log_info!("sharing", "Native sending: new capture at {fps} fps, up to {} kbps", max_bitrate / 1000);
+        if s.has_audio.swap(has_audio, Ordering::Relaxed) != has_audio {
+            // quem já está conectado continua com as faixas que combinou
+            log_info!("sharing", "Native sending: the new capture {}; only new viewers get the change", audio_text);
+        }
+        log_info!("sharing", "Native sending: new capture at {fps} fps, up to {} kbps, {audio_text}", max_bitrate / 1000);
         return s.clone();
     }
     let sender = Arc::new(Sender {
@@ -113,16 +127,18 @@ pub fn start(fps: u32, max_bitrate: u32) -> Arc<dyn FrameSink> {
         frame_ready: Condvar::new(),
         viewers: Mutex::new(HashMap::new()),
         keyframe: AtomicBool::new(true),
-        config: Mutex::new(SendConfig { fps, max_bitrate }),
+        config: Mutex::new(SendConfig { fps, max_bitrate, gpu }),
         started: Instant::now(),
         next_session: Default::default(),
+        has_audio: AtomicBool::new(has_audio),
+        audio: Mutex::new(None),
     });
     let worker = sender.clone();
     thread::Builder::new()
         .name("native-encoder".into())
         .spawn(move || worker.encode_loop())
         .expect("encoder thread");
-    log_info!("sharing", "Native sending started at {fps} fps, up to {} kbps (video only for now)", max_bitrate / 1000);
+    log_info!("sharing", "Native sending started at {fps} fps, up to {} kbps, {audio_text}", max_bitrate / 1000);
     *slot = Some(sender.clone());
     sender
 }
@@ -223,7 +239,10 @@ impl Sender {
 
     fn encode_loop(self: Arc<Self>) {
         let mut encoder: Option<Box<dyn VideoEncoder>> = None;
-        let mut software_only = false;
+        // a placa falhou 3 vezes seguidas: fica no processador
+        let mut gpu_failed = false;
+        // com o que o codificador atual foi aberto
+        let mut opened_software_only = false;
         let mut failures = 0u32;
         let mut last_keyframe: Option<Instant> = None;
         let mut bitrate = 0u32;
@@ -265,7 +284,10 @@ impl Sender {
 
             let config = *self.config.lock().unwrap();
             let size = (frame.width() as u32, frame.height() as u32);
-            if encoder.as_ref().is_none_or(|e| e.size() != size) {
+            let software_only = gpu_failed || !config.gpu;
+            if encoder.as_ref().is_none_or(|e| e.size() != size) || opened_software_only != software_only {
+                encoder = None;
+                opened_software_only = software_only;
                 bitrate = config.max_bitrate;
                 let enc_config = EncoderConfig {
                     width: size.0,
@@ -283,7 +305,9 @@ impl Sender {
                 match encode::open(enc_config, on_encoded) {
                     Ok(e) => {
                         log_info!("sharing", "Native sending encodes {}x{} with {}", size.0, size.1, e.describe());
-                        if !e.hardware() && !software_only {
+                        if software_only && !config.gpu {
+                            log_info!("sharing", "Hardware acceleration is off, so native sending encodes on the processor");
+                        } else if !e.hardware() && !software_only {
                             log_warn!("sharing", "No graphics card encoder worked here, encoding on the processor");
                         }
                         encoder = Some(e);
@@ -339,7 +363,7 @@ impl Sender {
                     log_error!("sharing", "The video encoder failed ({failures}x): {e}");
                     encoder = None;
                     if failures >= 3 && !software_only {
-                        software_only = true;
+                        gpu_failed = true;
                         log_warn!("sharing", "Switching native sending to the processor encoder");
                     }
                 }
@@ -370,8 +394,59 @@ impl Sender {
     /// Um frame codificado: o mesmo para todos os conectados.
     fn broadcast(&self, f: EncodedFrame) {
         let shared = Arc::new(Encoded { data: f.data.into(), keyframe: f.keyframe, timestamp: f.timestamp });
+        self.to_connected(|| ViewerMsg::Frame(shared.clone()));
+    }
+
+    fn to_connected(&self, msg: impl Fn() -> ViewerMsg) {
         for v in self.viewers.lock().unwrap().values().filter(|v| v.connected) {
-            let _ = v.tx.send(ViewerMsg::Frame(shared.clone()));
+            let _ = v.tx.send(msg());
+        }
+    }
+
+    fn anyone_connected(&self) -> bool {
+        self.viewers.lock().unwrap().values().any(|v| v.connected)
+    }
+
+    /// Um pedaço de som da captura (10 ms).
+    fn encode_audio(&self, packet: &[u8]) {
+        let Some(samples) = packet.get(HEADER..) else { return };
+        let mut slot = self.audio.lock().unwrap();
+        if !self.anyone_connected() {
+            if let Some(a) = slot.as_mut() {
+                a.reset();
+            }
+            return;
+        }
+        if slot.is_none() {
+            match audio::AudioEncoder::new(self.started) {
+                Ok(a) => {
+                    log_info!("sharing", "Native sending encodes the audio with Opus (48 kHz stereo, 20 ms packets)");
+                    *slot = Some(a);
+                }
+                Err(e) => {
+                    log_error!("sharing", "Could not start the audio encoder: {e}");
+                    self.has_audio.store(false, Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+        let enc = slot.as_mut().unwrap();
+        let resyncs = enc.resyncs;
+        let ready = match enc.push(samples, Instant::now()) {
+            Ok(r) => r,
+            Err(e) => {
+                log_error!("sharing", "Audio encoding failed, restarting it: {e}");
+                *slot = None;
+                return;
+            }
+        };
+        if enc.resyncs > resyncs && enc.resyncs.is_power_of_two() {
+            log_info!("sharing", "Native audio resumed after a pause (silence) {} times so far", enc.resyncs);
+        }
+        drop(slot);
+        for p in ready {
+            let p = Arc::new(p);
+            self.to_connected(|| ViewerMsg::Audio(p.clone()));
         }
     }
 }
@@ -383,30 +458,99 @@ impl FrameSink for Sender {
         self.frame_ready.notify_one();
     }
 
-    fn audio(&self, _packet: Bytes) {}
+    fn audio(&self, packet: Bytes) {
+        if self.has_audio.load(Ordering::Relaxed) {
+            self.encode_audio(&packet);
+        }
+    }
 
     fn is_closed(&self) -> bool {
         !self.running.load(Ordering::Relaxed)
     }
 }
 
-/// Manda os frames da captura para dois destinos (a prévia local pelo
-/// WebSocket e o envio nativo). O áudio e o fim seguem o primeiro.
-pub struct Tee(pub Arc<dyn FrameSink>, pub Arc<dyn FrameSink>);
+/// No envio nativo a prévia local (a sua própria tela, no app) só serve para
+/// você ver: vai em no máximo esse fps, em vez do fps da transmissão.
+pub const PREVIEW_FPS: u32 = 15;
+
+/// Manda os frames da captura para dois destinos: a prévia local (WebSocket,
+/// no máximo [`PREVIEW_FPS`]) e o envio nativo (todos). O fim segue a prévia.
+pub struct Tee {
+    preview: Arc<dyn FrameSink>,
+    native: Arc<dyn FrameSink>,
+    preview_every: Duration,
+    last_preview: Mutex<Option<Instant>>,
+}
+
+impl Tee {
+    pub fn new(preview: Arc<dyn FrameSink>, native: Arc<dyn FrameSink>, preview_fps: u32) -> Self {
+        let preview_every = Duration::from_micros(1_000_000 / preview_fps.max(1) as u64);
+        Self { preview, native, preview_every, last_preview: Mutex::new(None) }
+    }
+}
 
 impl FrameSink for Tee {
     fn video(&self, packet: VideoPacket) {
-        // a prévia local recebe uma cópia; o envio nativo, o original
-        self.0.video(packet.clone());
-        self.1.video(packet);
+        // a prévia só recebe (e só copia) os frames que vai mostrar; uma
+        // pequena folga para o ritmo da captura não pular um a cada dois
+        let due = {
+            let mut last = self.last_preview.lock().unwrap();
+            let due = last.is_none_or(|t| t.elapsed() + self.preview_every / 8 >= self.preview_every);
+            if due {
+                *last = Some(Instant::now());
+            }
+            due
+        };
+        if due {
+            self.preview.video(packet.clone());
+        }
+        self.native.video(packet);
     }
     fn audio(&self, packet: Bytes) {
-        self.0.audio(packet);
+        self.preview.audio(packet.clone());
+        self.native.audio(packet);
     }
     fn is_closed(&self) -> bool {
-        self.0.is_closed()
+        self.preview.is_closed()
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tee_tests {
+    use super::*;
+    use crate::capture::packet::PixelFormat;
+    use std::sync::atomic::AtomicU32;
+
+    #[derive(Default)]
+    struct Count(AtomicU32, AtomicU32);
+    impl FrameSink for Count {
+        fn video(&self, _: VideoPacket) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+        fn audio(&self, _: Bytes) {
+            self.1.fetch_add(1, Ordering::Relaxed);
+        }
+        fn is_closed(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn preview_gets_fewer_frames_native_gets_all() {
+        let (preview, native) = (Arc::new(Count::default()), Arc::new(Count::default()));
+        let tee = Tee::new(preview.clone(), native.clone(), PREVIEW_FPS);
+        let start = Instant::now();
+        for n in 0..60u32 {
+            thread::sleep((Duration::from_secs(1) * n / 60).saturating_sub(start.elapsed()));
+            tee.video(VideoPacket::new(PixelFormat::Nv12, 16, 16));
+            tee.audio(Bytes::from_static(b"x"));
+        }
+        let shown = preview.0.load(Ordering::Relaxed);
+        assert_eq!(native.0.load(Ordering::Relaxed), 60);
+        assert!((13..=17).contains(&shown), "preview got {shown} frames in 1 s");
+        assert_eq!((preview.1.load(Ordering::Relaxed), native.1.load(Ordering::Relaxed)), (60, 60));
+    }
+}

@@ -29,6 +29,8 @@ export const es: Messages = {
   performance: "Rendimiento",
   hwAccel: "Aceleración por hardware",
   hwAccelHint: "Usa la tarjeta gráfica para la captura y la codificación. Se aplica desde la próxima transmisión",
+  nativeSend: "Envío nativo (experimental)",
+  nativeSendHint: "Tu pantalla se codifica una sola vez con la tarjeta gráfica y la propia app la envía a todos los que miran, en lugar de una vez por persona. Se aplica desde la próxima sala",
   trayOpen: "Abrir AbreTela",
   trayQuit: "Salir",
   trayLive: "AbreTela — transmitiendo",

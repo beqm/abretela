@@ -29,6 +29,8 @@ export const pt = {
   performance: "Desempenho",
   hwAccel: "Aceleração de hardware",
   hwAccelHint: "Usa a placa de vídeo na captura e na codificação. Vale a partir da próxima transmissão",
+  nativeSend: "Envio nativo (experimental)",
+  nativeSendHint: "Sua tela é codificada uma vez pela placa de vídeo e enviada pelo próprio app a todos que assistem, em vez de uma vez por pessoa. Vale a partir da próxima sala",
   trayOpen: "Abrir AbreTela",
   trayQuit: "Sair",
   trayLive: "AbreTela — transmitindo",

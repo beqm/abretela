@@ -215,7 +215,7 @@
         pick.quality.fps,
         pick.audio,
         prefs.hwAccel,
-        prefs.nativeSend ? videoBitrate(pick.quality) : undefined,
+        client.nativeSend ? videoBitrate(pick.quality) : undefined,
       );
       const title =
         pick.source.kind === "screen"

@@ -29,6 +29,8 @@ export const ko: Messages = {
   performance: "성능",
   hwAccel: "하드웨어 가속",
   hwAccelHint: "캡처와 인코딩에 그래픽카드를 사용합니다. 다음 방송부터 적용됩니다",
+  nativeSend: "네이티브 전송 (실험적)",
+  nativeSendHint: "화면을 그래픽카드로 한 번만 인코딩해 앱이 직접 모든 시청자에게 보냅니다. 사람마다 따로 인코딩하지 않습니다. 다음 방부터 적용됩니다",
   trayOpen: "AbreTela 열기",
   trayQuit: "종료",
   trayLive: "AbreTela — 방송 중",

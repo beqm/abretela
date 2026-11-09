@@ -91,8 +91,8 @@ Partes, cada uma saindo e testada antes da próxima:
   na checagem). Já entram: quadro-chave no máximo 1/s, bitrate pela menor
   estimativa, tela parada repete o último frame 1x/s (o WGC só entrega frame
   quando a tela muda; sem isso quem entra vê preto).
-  - Ligar: preferência escondida `nativeSend` (no `localStorage`,
-    `abretela.prefs` → `"nativeSend": true`), sem opção na tela ainda.
+  - Ligar: Configurações → Geral → Desempenho → "Envio nativo
+    (experimental)" (3e).
   - Testado: `native_send_browser` (`--ignored`, página só em 127.0.0.1)
     com dois espectadores Chromium: conecta em ~0,1 s, H.264 1080p
     decodificado, 0% de perda por 2,5 min, fecha limpo. Testes do
@@ -119,11 +119,59 @@ Partes, cada uma saindo e testada antes da próxima:
     frame repetido (enche até o bitrate); ver na 3d.
   - A prévia local ainda passa pela ponte WebSocket: para medir o ganho de
     verdade (3e) ela precisa ficar leve (menos fps/resolução) no modo nativo.
-- [ ] **3c. Áudio Opus** no envio nativo.
+- [x] **3c. Áudio Opus** no envio nativo (`send/audio.rs`). O som da captura
+  (f32 estéreo 48 kHz, pedaços de 10 ms) vira Opus em pacotes de 20 ms, 128
+  kbps, FEC ligado, codificado uma vez para todos. Sai numa segunda faixa no
+  mesmo stream do vídeo ("abretela"), então quem assiste recebe uma
+  `MediaStream` com as duas, como hoje; o tempo de cada pacote vem do mesmo
+  relógio do vídeo, para sincronizar. Sem som na captura, a oferta vai sem
+  faixa de áudio.
+  - Codificador: `opus-pure` (Rust puro, sem C nem cmake; o `opus`/libopus
+    pede cmake, que não está instalado e teria que entrar no CI e no Mac e
+    Linux). Comparada com a `opus-rs`: as duas ~0,1 ms por pacote, e o
+    resultado de ambas decodifica limpo na libopus (ffmpeg); a `opus-pure` não
+    tem dependências e mediu um pouco melhor (SNR 25,3 contra 23,4 dB).
+  - Quando o app fica quieto o Windows para de mandar pedaços; na volta o tempo
+    pula para "agora" (`RESYNC_AFTER`), em vez de o som ficar atrasado.
+  - Testado: `native_send_browser` com um tom gerado (440 Hz, 1,5 s de silêncio
+    a cada 6 s; `NATIVE_AUDIO=0` sem som). O navegador recebe Opus estéreo,
+    ~128 kbps, 0 pacotes perdidos, áudio e vídeo na mesma stream; gravado no
+    navegador, chega 440 Hz no nível certo, e a pausa some e volta limpa. O
+    vídeo continua em 60 fps com o áudio junto.
+  - Falta: testar com som real de um app numa sala; trocar de tela com e sem
+    som com alguém já assistindo (quem já está conectado fica com as faixas que
+    combinou até reconectar).
 - [ ] **3d. Políticas de banda**: limite de quadros-chave, espectador lento,
   qualidade por espectador.
-- [ ] **3e. Opção experimental** nas configurações, comparação lado a lado com
-  o envio pelo WebView e teste em sala real.
+- [x] **3e. Opção experimental** (falta só o teste em sala real, abaixo).
+  - Chave "Envio nativo (experimental)" em Configurações → Desempenho, nos seis
+    idiomas, desligada por padrão. Vale a partir da próxima sala: o modo fica
+    preso ao `RoomClient` (`client.nativeSend`), e a captura segue o modo da
+    sala, não a opção (mudar no meio da sala descasaria transporte e captura, e
+    ninguém veria nada).
+  - "Aceleração de hardware" desligada também vale para o envio nativo
+    (codifica no processador).
+  - Prévia local leve: no modo nativo a sua própria tela vai para o app a no
+    máximo 15 fps (`PREVIEW_FPS`), e o `Tee` só copia os frames que a prévia
+    vai mostrar (antes copiava 3 MB por frame a 60 fps). A resolução da
+    prévia continua a da captura.
+  - Medição lado a lado (`logging/perf.rs`): a cada 30 s transmitindo, uma linha
+    `[perf]` com o processador do app e dos processos do WebView2 (% do PC) e o
+    uso da placa por parte (codificação, 3D, decodificação, do contador "GPU
+    Engine" do Windows; na AMD a codificação aparece como "Video Codec"). Diz
+    qual método está em uso. Medido: 1080p60 nativo = ~1,3% do processador e
+    ~15% da parte de codificação da placa (RX 7800 XT). Junto com as linhas de
+    saúde de cada espectador (fps, perda), que os dois métodos já tinham.
+  - Não tem: voltar sozinho para o envio pelo WebView se o nativo falhar (o
+    codificador do processador já é a reserva dentro do nativo).
+  - **Roteiro do teste em sala** (2 PCs, redes diferentes de preferência):
+    1. Sem a opção: entrar na sala, transmitir 1080p60 com som de um app
+       (vídeo ou jogo), a outra pessoa assiste ~2 min. Repetir com 2 ou 3
+       pessoas assistindo, se der.
+    2. Ligar a opção, sair e entrar de novo na sala, e repetir igual.
+    3. Comparar nos logs dos dois PCs: `[perf]` (processador e placa de quem
+       transmite), as linhas de saúde (fps e perda de quem assiste) e se o som
+       chega sincronizado. Conferir também trocar de tela no meio.
 - Depois: entregar a textura da captura direto ao codificador (hoje o NV12
   passa pela memória do processador uma vez).
 

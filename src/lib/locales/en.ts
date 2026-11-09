@@ -29,6 +29,8 @@ export const en: Messages = {
   performance: "Performance",
   hwAccel: "Hardware acceleration",
   hwAccelHint: "Uses the graphics card for capture and encoding. Applies from the next stream",
+  nativeSend: "Native sending (experimental)",
+  nativeSendHint: "Your screen is encoded once by the graphics card and sent by the app itself to everyone watching, instead of once per person. Applies from the next room",
   trayOpen: "Open AbreTela",
   trayQuit: "Quit",
   trayLive: "AbreTela — streaming",

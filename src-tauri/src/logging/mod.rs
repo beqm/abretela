@@ -248,3 +248,4 @@ macro_rules! log_error {
 
 // depois das macros, que ele usa
 pub mod network;
+pub mod perf;
