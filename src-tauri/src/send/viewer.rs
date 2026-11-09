@@ -30,6 +30,8 @@ use str0m::{
 /// Sem rota funcionando por esse tempo, desiste (quem assiste tenta de novo).
 const GIVE_UP_AFTER: Duration = Duration::from_secs(30);
 const HEALTH_EVERY: Duration = Duration::from_secs(30);
+/// Abaixo da camada pedida, sonda a banda nesse ritmo.
+const PROBE_EVERY: Duration = Duration::from_secs(5);
 
 pub enum ViewerMsg {
     Net { local: SocketAddr, source: SocketAddr, data: Vec<u8> },
@@ -131,6 +133,10 @@ pub fn spawn(
         started: Instant::now(),
         connected: false,
         waiting_keyframe: true,
+        layer: None,
+        bwe_wish: None,
+        bwe_checked: Instant::now(),
+        last_probe: Instant::now(),
         disconnected_since: None,
         frames_sent: 0,
         frames_skipped: 0,
@@ -186,6 +192,12 @@ struct Session {
     started: Instant,
     connected: bool,
     waiting_keyframe: bool,
+    /// A camada dos frames que está recebendo.
+    layer: Option<u32>,
+    /// O último (mínimo, desejado, sondando) passado ao controle de banda, e quando.
+    bwe_wish: Option<(u64, u64, bool)>,
+    bwe_checked: Instant,
+    last_probe: Instant,
     disconnected_since: Option<Instant>,
     frames_sent: u64,
     frames_skipped: u64,
@@ -311,7 +323,10 @@ impl Session {
                 );
                 self.rtc.add_remote_candidate(c);
             }
-            ViewerMsg::Frame(frame) => self.send_frame(&frame)?,
+            ViewerMsg::Frame(frame) => {
+                self.update_bwe();
+                self.send_frame(&frame)?
+            }
             ViewerMsg::Audio(packet) => self.send_audio(&packet)?,
             ViewerMsg::Close => {}
         }
@@ -323,11 +338,16 @@ impl Session {
         if !self.connected {
             return Ok(());
         }
+        if self.layer != Some(frame.layer) {
+            // trocou de camada: outra resolução, só dá para seguir de um quadro-chave
+            self.layer = Some(frame.layer);
+            self.waiting_keyframe = true;
+        }
         if self.waiting_keyframe {
             // só começa num quadro-chave: sem ele o navegador não decodifica nada
             if !(frame.keyframe || has_idr(&frame.data)) {
                 self.frames_skipped += 1;
-                self.sender.request_keyframe();
+                self.sender.request_keyframe(&self.id);
                 return Ok(());
             }
             self.waiting_keyframe = false;
@@ -341,6 +361,40 @@ impl Session {
             .map_err(|e| format!("could not send a frame: {e}"))?;
         self.frames_sent += 1;
         Ok(())
+    }
+
+    /// Conta ao controle de banda quanto sustentar e até onde sondar (ver
+    /// `Sender::bwe_wish`), no máximo uma vez por segundo.
+    fn update_bwe(&mut self) {
+        if self.bwe_checked.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        self.bwe_checked = Instant::now();
+        let Some(wish) = self.sender.bwe_wish(&self.id) else { return };
+        let (minimum, desired, probing) = wish;
+        if self.bwe_wish == Some(wish) {
+            // o str0m só sonda quando o desejado sobe: abaixo da camada pedida,
+            // baixa e sobe de novo de tempos em tempos
+            if probing && self.last_probe.elapsed() >= PROBE_EVERY {
+                self.last_probe = Instant::now();
+                let mut bwe = self.rtc.bwe();
+                bwe.set_bitrate(Bitrate::bps(minimum), Bitrate::bps(desired / 2));
+                bwe.set_bitrate(Bitrate::bps(minimum), Bitrate::bps(desired));
+            }
+            return;
+        }
+        if probing && !self.bwe_wish.is_some_and(|w| w.2) {
+            log_info!(
+                "sharing",
+                "Native sending {}: probing whether the connection takes ~{} kbps (to go back up a layer) {}",
+                self.who,
+                minimum / 1000,
+                self.since()
+            );
+        }
+        self.bwe_wish = Some(wish);
+        self.last_probe = Instant::now();
+        self.rtc.bwe().set_bitrate(Bitrate::bps(minimum), Bitrate::bps(desired));
     }
 
     /// Um pacote Opus. O tempo é do mesmo relógio do vídeo (desde o começo da
@@ -426,7 +480,7 @@ impl Session {
                 log_info!("sharing", "Native connection {} is up (routes and encryption ready) {}", self.who, self.since());
             }
             Event::KeyframeRequest(r) => {
-                self.sender.request_keyframe();
+                self.sender.request_keyframe(&self.id);
                 if self.frames_sent < 5 {
                     log_info!("sharing", "{} asked for a keyframe ({:?})", self.who, r.kind);
                 }

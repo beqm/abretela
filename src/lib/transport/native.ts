@@ -23,8 +23,8 @@ export type NativeEvent = { viewer: string } & (
 export class NativeTransport implements MediaTransport {
   private mesh: MeshTransport;
   private sharing = false;
-  /** Quem está com uma conexão nativa aberta. */
-  private viewers = new Set<string>();
+  /** Quem está com uma conexão nativa aberta (e quando ela terminou de abrir). */
+  private viewers = new Map<string, Promise<unknown>>();
   private unlisten: Promise<UnlistenFn>;
 
   constructor(private host: TransportHost) {
@@ -33,8 +33,8 @@ export class NativeTransport implements MediaTransport {
     log.info("sharing", "Using native sending (experimental): my screen is encoded and sent by the app itself");
   }
 
-  private call(cmd: string, args: Record<string, unknown>, what: string) {
-    invoke(cmd, args).catch((e) => log.error("sharing", `${what} failed: ${describeError(e)}`));
+  private call(cmd: string, args: Record<string, unknown>, what: string): Promise<unknown> {
+    return invoke(cmd, args).catch((e) => log.error("sharing", `${what} failed: ${describeError(e)}`));
   }
 
   // ---------- transmitir (no Rust) ----------
@@ -60,8 +60,21 @@ export class NativeTransport implements MediaTransport {
       return;
     }
     log.info("sharing", `${this.host.nameOf(id)} wants to watch (native sending)`);
-    this.viewers.add(id);
-    this.call("native_viewer_open", { viewer: id, name: this.host.nameOf(id) }, `Opening the connection to ${this.host.nameOf(id)}`);
+    const opened = this.call(
+      "native_viewer_open",
+      { viewer: id, name: this.host.nameOf(id) },
+      `Opening the connection to ${this.host.nameOf(id)}`,
+    );
+    this.viewers.set(id, opened);
+  }
+
+  /** O tamanho em que a pessoa está vendo: o Rust escolhe a camada (só depois de abrir a conexão). */
+  private view(id: string, height: number) {
+    const opened = this.viewers.get(id);
+    if (!opened) return;
+    opened.then(() =>
+      this.call("native_viewer_view", { viewer: id, height }, `Telling the size ${this.host.nameOf(id)} watches in`),
+    );
   }
 
   private closeViewer(id: string) {
@@ -118,7 +131,8 @@ export class NativeTransport implements MediaTransport {
         this.closeViewer(from);
         return;
       case "view":
-        // qualidade por espectador é a parte 3d; por enquanto todos recebem a mesma
+        // qualidade por espectador: camadas no Rust (ROADMAP, parte 3d)
+        this.view(from, Math.max(0, Number(data.height) || 0));
         return;
       case "answer":
         if (!this.viewers.has(from)) {

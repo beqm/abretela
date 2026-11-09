@@ -49,8 +49,6 @@ pub trait VideoEncoder: Send {
     fn describe(&self) -> String;
     /// Codifica pela placa de vídeo?
     fn hardware(&self) -> bool;
-    /// Largura e altura para as quais foi aberto.
-    fn size(&self) -> (u32, u32);
     /// Entrega um frame (o resultado sai por [`OnEncoded`]). `keyframe` pede um
     /// quadro-chave. Se o codificador ainda estiver ocupado, espera um pouco e
     /// depois descarta este frame.

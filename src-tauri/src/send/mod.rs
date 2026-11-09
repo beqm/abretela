@@ -4,8 +4,9 @@
 //! mensagens da sala (offer/answer/ice) são as mesmas de sempre.
 //!
 //! - A captura entrega os frames por [`frame_sink`] (junto com a prévia local).
-//! - Uma thread de codificação pega sempre o frame mais novo, codifica só se
-//!   alguém estiver conectado e manda o resultado a todos.
+//! - Uma thread de codificação pega sempre o frame mais novo e codifica uma vez
+//!   por **camada** de qualidade em uso (`layers.rs`: a da transmissão e as
+//!   menores, para quem pediu menos ou tem conexão lenta), não por pessoa.
 //! - Cada espectador é uma thread com o próprio `Rtc` do str0m e sockets UDP
 //!   (`viewer.rs`); as mensagens para a sala saem por [`Signals`].
 //!
@@ -13,6 +14,8 @@
 
 mod audio;
 pub mod commands;
+mod layers;
+mod scale;
 pub mod stun;
 mod viewer;
 
@@ -23,8 +26,9 @@ use crate::capture::{
 use crate::encode::{self, EncodedFrame, EncoderConfig, VideoEncoder};
 use axum::body::Bytes;
 use serde::Serialize;
+use layers::{Plan, NO_VIDEO};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Condvar, Mutex,
@@ -38,12 +42,13 @@ use viewer::ViewerMsg;
 /// isso um espectador com perda pede dezenas por segundo; ver o protótipo).
 const KEYFRAME_MIN_INTERVAL: Duration = Duration::from_secs(1);
 /// A captura só entrega frame quando a tela muda. Parada, o último frame é
-/// codificado de novo nesse ritmo (e na hora, se alguém pedir quadro-chave),
-/// para quem acabou de entrar ver alguma coisa.
-const REPEAT_STILL_FRAME: Duration = Duration::from_secs(1);
+/// codificado de novo na hora em que alguém pede quadro-chave (quem acabou de
+/// entrar, ou trocou de camada) e, fora isso, só nesse ritmo: com a tela
+/// parada quase não se gasta banda.
+const REPEAT_STILL_FRAME: Duration = Duration::from_secs(5);
 const STILL_CHECK: Duration = Duration::from_millis(100);
-/// Menor bitrate que o controle de banda pode pedir.
-const MIN_BITRATE: u32 = 150_000;
+/// De quanto em quanto revê as camadas e o bitrate.
+const CHECK_EVERY: Duration = Duration::from_secs(1);
 
 /// Mensagens para a sala (o app as manda pela sinalização).
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -60,12 +65,14 @@ pub trait Signals: Send + Sync {
     fn send(&self, viewer: &str, msg: Outgoing);
 }
 
-/// Um frame codificado, compartilhado por todos.
+/// Um frame codificado, compartilhado por todos da mesma camada.
 pub struct Encoded {
     pub data: Arc<[u8]>,
     pub keyframe: bool,
     /// Tempo desde o começo da transmissão.
     pub timestamp: Duration,
+    /// Altura da camada (vídeo); 0 no áudio.
+    pub layer: u32,
 }
 
 struct ViewerEntry {
@@ -76,6 +83,14 @@ struct ViewerEntry {
     connected: bool,
     /// Banda estimada até essa pessoa (bps).
     estimate: Option<u64>,
+    /// A altura que pediu ("view"; `None` = ainda não pediu: a transmissão inteira).
+    wants: Option<u32>,
+    /// A camada que está recebendo (`None` = ainda nenhuma).
+    layer: Option<u32>,
+    /// Desde quando está sem banda para a camada atual / com folga para a de cima.
+    timers: layers::Timers,
+    /// Só nos testes: finge uma conexão mais lenta do que a real.
+    estimate_cap: Option<u64>,
 }
 
 pub struct Sender {
@@ -83,7 +98,12 @@ pub struct Sender {
     latest: Mutex<Option<(VideoPacket, Instant)>>,
     frame_ready: Condvar,
     viewers: Mutex<HashMap<String, ViewerEntry>>,
-    keyframe: AtomicBool,
+    /// Camadas que precisam de um quadro-chave.
+    keyframes: Mutex<HashSet<u32>>,
+    /// Alguém entrou, saiu ou pediu outro tamanho: rever as camadas já.
+    reassign: AtomicBool,
+    /// A transmissão atual (altura, fps, bitrate), para as contas de banda.
+    plan: Mutex<Option<Plan>>,
     config: Mutex<SendConfig>,
     started: Instant,
     next_session: std::sync::atomic::AtomicU64,
@@ -113,7 +133,7 @@ pub fn start(fps: u32, max_bitrate: u32, has_audio: bool, gpu: bool) -> Arc<dyn 
     let audio_text = if has_audio { "with audio" } else { "no audio" };
     if let Some(s) = slot.as_ref().filter(|s| s.running.load(Ordering::Relaxed)) {
         *s.config.lock().unwrap() = SendConfig { fps, max_bitrate, gpu };
-        s.keyframe.store(true, Ordering::Relaxed);
+        s.request_all_keyframes();
         if s.has_audio.swap(has_audio, Ordering::Relaxed) != has_audio {
             // quem já está conectado continua com as faixas que combinou
             log_info!("sharing", "Native sending: the new capture {}; only new viewers get the change", audio_text);
@@ -126,7 +146,9 @@ pub fn start(fps: u32, max_bitrate: u32, has_audio: bool, gpu: bool) -> Arc<dyn 
         latest: Mutex::new(None),
         frame_ready: Condvar::new(),
         viewers: Mutex::new(HashMap::new()),
-        keyframe: AtomicBool::new(true),
+        keyframes: Mutex::new(HashSet::new()),
+        reassign: AtomicBool::new(true),
+        plan: Mutex::new(None),
         config: Mutex::new(SendConfig { fps, max_bitrate, gpu }),
         started: Instant::now(),
         next_session: Default::default(),
@@ -173,7 +195,17 @@ pub fn open_viewer(id: &str, name: &str, signals: Arc<dyn Signals>) -> Result<()
     let (tx, rx) = mpsc::channel();
     sender.viewers.lock().unwrap().insert(
         id.to_string(),
-        ViewerEntry { tx: tx.clone(), session, name: name.to_string(), connected: false, estimate: None },
+        ViewerEntry {
+            tx: tx.clone(),
+            session,
+            name: name.to_string(),
+            connected: false,
+            estimate: None,
+            wants: None,
+            layer: None,
+            timers: Default::default(),
+            estimate_cap: None,
+        },
     );
     if let Err(e) = viewer::spawn(id.to_string(), name.to_string(), session, bitrate, sender.clone(), signals, tx, rx) {
         sender.forget(id, session);
@@ -197,6 +229,27 @@ pub fn remote_candidate(id: &str, candidate: String) -> Result<(), String> {
     to_viewer(id, ViewerMsg::RemoteCandidate(candidate))
 }
 
+/// O tamanho em que alguém está vendo (a mensagem "view"; 0 = app escondido).
+pub fn viewer_view(id: &str, height: u32) -> Result<(), String> {
+    let sender = current().ok_or("not sharing")?;
+    let mut viewers = sender.viewers.lock().unwrap();
+    let v = viewers.get_mut(id).ok_or("no connection with this viewer")?;
+    v.wants = Some(height);
+    sender.reassign.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Só nos testes: a banda até `id` passa a ser no máximo `bps` (conexão lenta de mentira).
+#[cfg(test)]
+pub fn cap_estimate(id: &str, bps: u64) -> Result<(), String> {
+    let sender = current().ok_or("not sharing")?;
+    let mut viewers = sender.viewers.lock().unwrap();
+    let v = viewers.get_mut(id).ok_or("no connection with this viewer")?;
+    v.estimate_cap = Some(bps);
+    v.estimate = Some(v.estimate.map_or(bps, |e| e.min(bps)));
+    Ok(())
+}
+
 pub fn close_viewer(id: &str) {
     if let Some(sender) = current() {
         if let Some(v) = sender.viewers.lock().unwrap().remove(id) {
@@ -208,22 +261,35 @@ pub fn close_viewer(id: &str) {
 impl Sender {
     // ---------- chamado pelos espectadores ----------
 
-    fn request_keyframe(&self) {
-        self.keyframe.store(true, Ordering::Relaxed);
+    /// Um espectador precisa de quadro-chave (entrou, perdeu pacotes, trocou
+    /// de camada): pede na camada dele.
+    fn request_keyframe(&self, id: &str) {
+        let layer = self.viewers.lock().unwrap().get(id).and_then(|v| v.layer);
+        if let Some(l) = layer.filter(|&l| l != NO_VIDEO) {
+            self.keyframes.lock().unwrap().insert(l);
+        }
+    }
+
+    /// Captura nova: todas as camadas em uso começam com quadro-chave.
+    fn request_all_keyframes(&self) {
+        let layers: Vec<u32> = self.viewers.lock().unwrap().values().filter_map(|v| v.layer).collect();
+        self.keyframes.lock().unwrap().extend(layers.into_iter().filter(|&l| l != NO_VIDEO));
     }
 
     fn set_connected(&self, id: &str, session: u64, connected: bool) {
         if let Some(v) = self.viewers.lock().unwrap().get_mut(id).filter(|v| v.session == session) {
             v.connected = connected;
+            if !connected {
+                v.layer = None;
+            }
         }
-        if connected {
-            self.request_keyframe();
-        }
+        // a camada (e o quadro-chave dela) sai na próxima volta do laço
+        self.reassign.store(true, Ordering::Relaxed);
     }
 
     fn set_estimate(&self, id: &str, session: u64, bps: u64) {
         if let Some(v) = self.viewers.lock().unwrap().get_mut(id).filter(|v| v.session == session) {
-            v.estimate = Some(bps);
+            v.estimate = Some(v.estimate_cap.map_or(bps, |cap| bps.min(cap)));
         }
     }
 
@@ -235,19 +301,68 @@ impl Sender {
         }
     }
 
+    // ---------- camadas ----------
+
+    /// Banda de vídeo até alguém: a estimada, menos o som.
+    fn video_estimate(&self, estimate: Option<u64>) -> Option<u64> {
+        let audio = if self.has_audio.load(Ordering::Relaxed) { audio::BITRATE as u64 } else { 0 };
+        estimate.map(|e| e.saturating_sub(audio))
+    }
+
+    /// O que o controle de banda do str0m deve fazer até `id`: (mínimo a
+    /// sustentar, desejado, sondar). O str0m completa com enchimento até o
+    /// mínimo (sem passar da estimativa): sem isso a estimativa fica presa no
+    /// que a mídia manda (às vezes bem menos, com a tela parada) e cai, e o
+    /// espectador desceria de camada à toa. Na camada pedida, o mínimo é o
+    /// bitrate dela; abaixo, o da camada de cima, e `sondar` pede sondagens
+    /// até o desejado para a estimativa poder crescer e ele subir.
+    fn bwe_wish(&self, id: &str) -> Option<(u64, u64, bool)> {
+        let plan = (*self.plan.lock().unwrap())?;
+        let viewers = self.viewers.lock().unwrap();
+        let v = viewers.get(id)?;
+        let layer = v.layer?;
+        let audio = if self.has_audio.load(Ordering::Relaxed) { audio::BITRATE as u64 } else { 0 };
+        let wanted = plan.wanted(v.wants);
+        if wanted == NO_VIDEO || layer == NO_VIDEO {
+            return Some((0, audio.max(layers::MIN_BITRATE as u64), false));
+        }
+        let up = plan.layers().into_iter().find(|&l| l > layer && l <= wanted);
+        let minimum = plan.rate(up.unwrap_or(layer)) as u64 + audio;
+        Some((minimum, plan.rate(wanted) as u64 + audio, up.is_some()))
+    }
+
+    /// Revê a camada de cada um e anota o porquê de cada troca.
+    fn assign(&self, plan: &Plan, now: Instant) {
+        let mut keyframes = Vec::new();
+        {
+            let mut viewers = self.viewers.lock().unwrap();
+            for v in viewers.values_mut().filter(|v| v.connected) {
+                let est = self.video_estimate(v.estimate);
+                let next = plan.choose(v.wants, est, v.layer, &mut v.timers, now);
+                if v.layer == Some(next) {
+                    continue;
+                }
+                let why = layer_change(plan, v.wants, est, v.layer, next);
+                log_info!("sharing", "Native sending: {} {why}", v.name);
+                v.layer = Some(next);
+                if next != NO_VIDEO {
+                    keyframes.push(next);
+                }
+            }
+        }
+        self.keyframes.lock().unwrap().extend(keyframes);
+    }
+
     // ---------- codificação ----------
 
     fn encode_loop(self: Arc<Self>) {
-        let mut encoder: Option<Box<dyn VideoEncoder>> = None;
+        let mut layers: BTreeMap<u32, Layer> = BTreeMap::new();
+        let mut scaler = scale::Scaler::default();
         // a placa falhou 3 vezes seguidas: fica no processador
         let mut gpu_failed = false;
-        // com o que o codificador atual foi aberto
-        let mut opened_software_only = false;
         let mut failures = 0u32;
-        let mut last_keyframe: Option<Instant> = None;
-        let mut bitrate = 0u32;
-        let mut last_rate_check = Instant::now();
-        let mut stats = (0u64, Duration::ZERO, Instant::now()); // frames, tempo, desde
+        let mut last_check: Option<Instant> = None;
+        let mut stats_since = Instant::now();
         let mut last_frame: Option<VideoPacket> = None;
         let mut last_encode = Instant::now();
 
@@ -265,7 +380,8 @@ impl Sender {
                 // tela parada: repete o último frame se alguém precisa
                 None => match &last_frame {
                     Some(f)
-                        if self.keyframe.load(Ordering::Relaxed) || last_encode.elapsed() >= REPEAT_STILL_FRAME =>
+                        if !self.keyframes.lock().unwrap().is_empty()
+                            || last_encode.elapsed() >= REPEAT_STILL_FRAME =>
                     {
                         (f.clone(), Instant::now())
                     }
@@ -274,116 +390,188 @@ impl Sender {
             };
 
             // ninguém conectado: não gasta a placa
-            let targets: Vec<mpsc::Sender<ViewerMsg>> = {
-                let viewers = self.viewers.lock().unwrap();
-                viewers.values().filter(|v| v.connected).map(|v| v.tx.clone()).collect()
-            };
-            if targets.is_empty() {
+            if !self.anyone_connected() {
                 continue;
             }
 
             let config = *self.config.lock().unwrap();
-            let size = (frame.width() as u32, frame.height() as u32);
+            let plan = Plan { top: frame.height() as u32, fps: config.fps, max_bitrate: config.max_bitrate };
+            *self.plan.lock().unwrap() = Some(plan);
+            let now = Instant::now();
+            let check =
+                self.reassign.swap(false, Ordering::Relaxed) || last_check.is_none_or(|t| now - t >= CHECK_EVERY);
+            if check {
+                last_check = Some(now);
+                self.assign(&plan, now);
+            }
+
+            // quem recebe cada camada, e a banda de cada um
+            let mut active: BTreeMap<u32, Vec<u64>> = BTreeMap::new();
+            for v in self.viewers.lock().unwrap().values().filter(|v| v.connected) {
+                if let Some(l) = v.layer.filter(|&l| l != NO_VIDEO) {
+                    let list = active.entry(l).or_default();
+                    list.extend(self.video_estimate(v.estimate));
+                }
+            }
+            layers.retain(|h, _| {
+                let keep = active.contains_key(h);
+                if !keep {
+                    log_info!("sharing", "Native sending stopped the {}p layer (nobody gets it now)", h);
+                }
+                keep
+            });
+            self.keyframes.lock().unwrap().retain(|h| active.contains_key(h));
+
             let software_only = gpu_failed || !config.gpu;
-            if encoder.as_ref().is_none_or(|e| e.size() != size) || opened_software_only != software_only {
-                encoder = None;
-                opened_software_only = software_only;
-                bitrate = config.max_bitrate;
-                let enc_config = EncoderConfig {
-                    width: size.0,
-                    height: size.1,
-                    fps: config.fps,
-                    bitrate,
-                    software_only,
-                };
-                let me = Arc::downgrade(&self);
-                let on_encoded: encode::OnEncoded = Arc::new(move |f| {
-                    if let Some(sender) = me.upgrade() {
-                        sender.broadcast(f);
-                    }
-                });
-                match encode::open(enc_config, on_encoded) {
-                    Ok(e) => {
-                        log_info!("sharing", "Native sending encodes {}x{} with {}", size.0, size.1, e.describe());
-                        if software_only && !config.gpu {
-                            log_info!("sharing", "Hardware acceleration is off, so native sending encodes on the processor");
-                        } else if !e.hardware() && !software_only {
-                            log_warn!("sharing", "No graphics card encoder worked here, encoding on the processor");
-                        }
-                        encoder = Some(e);
-                        self.keyframe.store(true, Ordering::Relaxed);
-                    }
-                    Err(e) => {
-                        log_error!("sharing", "Could not start a video encoder: {e}");
-                        thread::sleep(Duration::from_secs(1));
+            let timestamp = captured.duration_since(self.started);
+            last_encode = now;
+            for (&h, estimates) in &active {
+                let layer = layers.entry(h).or_default();
+                let want_key = self.keyframes.lock().unwrap().contains(&h);
+                // camada a 30 fps numa transmissão a 60: um frame sim, um não
+                if plan.fps(h) < plan.fps && !want_key {
+                    let skip = layer.skip_next;
+                    layer.skip_next = !skip;
+                    if skip {
                         continue;
                     }
                 }
-            }
-            let enc = encoder.as_mut().unwrap();
+                let scaled;
+                let input = if h >= plan.top {
+                    &frame
+                } else {
+                    match scaler.scale(&frame, h) {
+                        Ok(f) => {
+                            scaled = f;
+                            &scaled
+                        }
+                        Err(e) => {
+                            log_error!("sharing", "Could not shrink the frame to {}p: {e}", h);
+                            continue;
+                        }
+                    }
+                };
+                let size = (input.width() as u32, input.height() as u32, software_only);
+                if layer.encoder.is_none() || layer.opened != size {
+                    layer.encoder = None;
+                    layer.bitrate = plan.layer_bitrate(h, estimates.iter().copied());
+                    let enc_config = EncoderConfig {
+                        width: size.0,
+                        height: size.1,
+                        fps: plan.fps(h),
+                        bitrate: layer.bitrate,
+                        software_only,
+                    };
+                    let me = Arc::downgrade(&self);
+                    let on_encoded: encode::OnEncoded = Arc::new(move |f| {
+                        if let Some(sender) = me.upgrade() {
+                            sender.broadcast(h, f);
+                        }
+                    });
+                    match encode::open(enc_config, on_encoded) {
+                        Ok(e) => {
+                            log_info!(
+                                "sharing",
+                                "Native sending: {}p layer ({}x{} at {} fps, {} kbps) encodes with {}",
+                                h,
+                                size.0,
+                                size.1,
+                                plan.fps(h),
+                                layer.bitrate / 1000,
+                                e.describe()
+                            );
+                            if software_only && !config.gpu {
+                                log_info!("sharing", "Hardware acceleration is off, so native sending encodes on the processor");
+                            } else if !e.hardware() && !software_only {
+                                log_warn!("sharing", "No graphics card encoder worked here, encoding on the processor");
+                            }
+                            layer.encoder = Some(e);
+                            layer.opened = size;
+                            self.keyframes.lock().unwrap().insert(h);
+                        }
+                        Err(e) => {
+                            log_error!("sharing", "Could not start a video encoder for {}p: {e}", h);
+                            failures += 1;
+                            if failures >= 3 && !software_only {
+                                gpu_failed = true;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                let enc = layer.encoder.as_mut().unwrap();
 
-            // banda: a menor estimativa entre quem está conectado, com folga
-            if last_rate_check.elapsed() >= Duration::from_secs(1) {
-                last_rate_check = Instant::now();
-                let lowest = self.viewers.lock().unwrap().values().filter_map(|v| v.estimate).min();
-                if let Some(est) = lowest {
-                    let target = ((est * 9 / 10) as u32).clamp(MIN_BITRATE, config.max_bitrate.max(MIN_BITRATE));
-                    if target.abs_diff(bitrate) as u64 * 10 > bitrate as u64 {
+                // banda: o mais lento da camada, com folga, nos limites dela
+                if check {
+                    let target = plan.layer_bitrate(h, estimates.iter().copied());
+                    if target.abs_diff(layer.bitrate) as u64 * 10 > layer.bitrate as u64 {
                         log_info!(
                             "sharing",
-                            "Native sending: bitrate {} -> {} kbps (slowest viewer can take ~{} kbps)",
-                            bitrate / 1000,
+                            "Native sending: {}p layer bitrate {} -> {} kbps (slowest viewer there can take ~{} kbps)",
+                            h,
+                            layer.bitrate / 1000,
                             target / 1000,
-                            est / 1000
+                            estimates.iter().min().copied().unwrap_or(0) / 1000
                         );
-                        bitrate = target;
-                        enc.set_bitrate(bitrate);
+                        layer.bitrate = target;
+                        enc.set_bitrate(target);
+                    }
+                }
+
+                let want_key = self.keyframes.lock().unwrap().contains(&h);
+                let keyframe = want_key && layer.last_keyframe.is_none_or(|t| t.elapsed() >= KEYFRAME_MIN_INTERVAL);
+                if keyframe {
+                    self.keyframes.lock().unwrap().remove(&h);
+                    layer.last_keyframe = Some(now);
+                }
+                let t0 = Instant::now();
+                match enc.encode(input, timestamp, keyframe) {
+                    Ok(()) => {
+                        failures = 0;
+                        layer.frames += 1;
+                        layer.busy += t0.elapsed();
+                    }
+                    Err(e) => {
+                        failures += 1;
+                        log_error!("sharing", "The {}p video encoder failed ({failures}x): {e}", h);
+                        layer.encoder = None;
+                        if failures >= 3 && !software_only {
+                            gpu_failed = true;
+                            log_warn!("sharing", "Switching native sending to the processor encoder");
+                        }
                     }
                 }
             }
 
-            let keyframe = self.keyframe.load(Ordering::Relaxed)
-                && last_keyframe.is_none_or(|t| t.elapsed() >= KEYFRAME_MIN_INTERVAL);
-            if keyframe {
-                self.keyframe.store(false, Ordering::Relaxed);
-                last_keyframe = Some(Instant::now());
-            }
-
-            let t0 = Instant::now();
-            last_encode = t0;
-            let timestamp = captured.duration_since(self.started);
-            match enc.encode(&frame, timestamp, keyframe) {
-                Ok(()) => {
-                    failures = 0;
-                    stats.0 += 1;
-                    stats.1 += t0.elapsed();
-                }
-                Err(e) => {
-                    failures += 1;
-                    log_error!("sharing", "The video encoder failed ({failures}x): {e}");
-                    encoder = None;
-                    if failures >= 3 && !software_only {
-                        gpu_failed = true;
-                        log_warn!("sharing", "Switching native sending to the processor encoder");
+            if stats_since.elapsed() >= Duration::from_secs(30) {
+                let secs = stats_since.elapsed().as_secs_f64();
+                stats_since = Instant::now();
+                let viewers = self.viewers.lock().unwrap();
+                for (&h, layer) in layers.iter_mut() {
+                    let names: Vec<&str> =
+                        viewers.values().filter(|v| v.connected && v.layer == Some(h)).map(|v| v.name.as_str()).collect();
+                    log_info!(
+                        "sharing",
+                        "Native sending, {}p layer: {} frames handed to the encoder in the last 30s ({:.0} fps), \
+                         {:.1} ms each, {} kbps, for {}",
+                        h,
+                        layer.frames,
+                        layer.frames as f64 / secs,
+                        layer.busy.as_secs_f64() * 1000.0 / layer.frames.max(1) as f64,
+                        layer.bitrate / 1000,
+                        names.join(", ")
+                    );
+                    if let Some(t) = layer.encoder.as_mut().and_then(|e| e.take_timings()) {
+                        log_info!("sharing", "Native sending, {}p layer, per frame: {t}", h);
                     }
+                    layer.frames = 0;
+                    layer.busy = Duration::ZERO;
                 }
-            }
-
-            if stats.2.elapsed() >= Duration::from_secs(30) {
-                let avg = stats.1.as_secs_f64() * 1000.0 / stats.0.max(1) as f64;
-                log_info!(
-                    "sharing",
-                    "Native sending: {} frames encoded in the last 30s ({:.0} fps), {avg:.1} ms to hand each \
-                     to the encoder, {} kbps, {} viewers connected",
-                    stats.0,
-                    stats.0 as f64 / 30.0,
-                    bitrate / 1000,
-                    targets.len()
-                );
-                if let Some(t) = encoder.as_mut().and_then(|e| e.take_timings()) {
-                    log_info!("sharing", "Native sending, per frame: {t}");
+                let hidden: Vec<&str> =
+                    viewers.values().filter(|v| v.connected && v.layer == Some(NO_VIDEO)).map(|v| v.name.as_str()).collect();
+                if !hidden.is_empty() {
+                    log_info!("sharing", "Native sending: only audio for {} (app hidden)", hidden.join(", "));
                 }
-                stats = (0, Duration::ZERO, Instant::now());
             }
         }
         log_info!("sharing", "Native encoder thread finished");
@@ -391,10 +579,13 @@ impl Sender {
 }
 
 impl Sender {
-    /// Um frame codificado: o mesmo para todos os conectados.
-    fn broadcast(&self, f: EncodedFrame) {
-        let shared = Arc::new(Encoded { data: f.data.into(), keyframe: f.keyframe, timestamp: f.timestamp });
-        self.to_connected(|| ViewerMsg::Frame(shared.clone()));
+    /// Um frame codificado de uma camada: o mesmo para todos que a recebem.
+    fn broadcast(&self, layer: u32, f: EncodedFrame) {
+        let shared =
+            Arc::new(Encoded { data: f.data.into(), keyframe: f.keyframe, timestamp: f.timestamp, layer });
+        for v in self.viewers.lock().unwrap().values().filter(|v| v.connected && v.layer == Some(layer)) {
+            let _ = v.tx.send(ViewerMsg::Frame(shared.clone()));
+        }
     }
 
     fn to_connected(&self, msg: impl Fn() -> ViewerMsg) {
@@ -448,6 +639,50 @@ impl Sender {
             let p = Arc::new(p);
             self.to_connected(|| ViewerMsg::Audio(p.clone()));
         }
+    }
+}
+
+/// Uma camada no laço de codificação.
+#[derive(Default)]
+struct Layer {
+    encoder: Option<Box<dyn VideoEncoder>>,
+    /// Largura, altura e "só processador" com que o codificador foi aberto.
+    opened: (u32, u32, bool),
+    bitrate: u32,
+    last_keyframe: Option<Instant>,
+    /// Camada a 30 fps numa transmissão a 60: pula o próximo frame.
+    skip_next: bool,
+    frames: u64,
+    busy: Duration,
+}
+
+fn label(layer: u32) -> String {
+    if layer == NO_VIDEO {
+        "no video".into()
+    } else {
+        format!("{layer}p")
+    }
+}
+
+/// O porquê de uma troca de camada, para o log.
+fn layer_change(plan: &Plan, wants: Option<u32>, est: Option<u64>, from: Option<u32>, to: u32) -> String {
+    let kbps = |b: u64| b / 1000;
+    let conn = est.map(|e| format!("its connection takes ~{} kbps", kbps(e))).unwrap_or_default();
+    let wanted = plan.wanted(wants);
+    if to == NO_VIDEO {
+        return "isn't looking at my screen (app hidden): sending only audio".into();
+    }
+    match from {
+        None | Some(NO_VIDEO) if to == wanted => format!("gets {}", label(to)),
+        None | Some(NO_VIDEO) => format!("gets {} instead of {} ({conn})", label(to), label(wanted)),
+        Some(f) if to < f && wanted < f => format!("asked for {} (a smaller view)", label(to)),
+        Some(f) if to < f => format!(
+            "moved down to {}: {conn}, {} needs ~{} kbps",
+            label(to),
+            label(f),
+            kbps(plan.rate(f) as u64)
+        ),
+        Some(_) => format!("moved up to {} ({conn})", label(to)),
     }
 }
 

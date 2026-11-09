@@ -40,6 +40,12 @@ pub fn native_viewer_candidate(viewer: String, candidate: String) -> Result<(), 
     super::remote_candidate(&viewer, candidate)
 }
 
+/// O tamanho em que alguém está vendo (0 = app escondido).
+#[tauri::command]
+pub fn native_viewer_view(viewer: String, height: u32) -> Result<(), String> {
+    super::viewer_view(&viewer, height)
+}
+
 #[tauri::command]
 pub fn native_viewer_close(viewer: String) {
     super::close_viewer(&viewer);

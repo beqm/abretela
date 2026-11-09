@@ -18,7 +18,7 @@ const CHANNELS: usize = 2;
 const FRAME: usize = SAMPLE_RATE as usize / 50;
 const FRAME_TIME: Duration = Duration::from_millis(20);
 /// Som de jogo e música, não só voz: bem acima dos ~32 kbps de uma chamada.
-const BITRATE: i32 = 128_000;
+pub const BITRATE: i32 = 128_000;
 /// Se o som chegar mais de tanto fora do esperado, recomeça o tempo.
 const RESYNC_AFTER: Duration = Duration::from_millis(200);
 
@@ -84,7 +84,7 @@ impl AudioEncoder {
             let at = self.next_at.unwrap_or_default();
             self.next_at = Some(at + FRAME_TIME);
             self.packets += 1;
-            ready.push(Encoded { data: self.out[..n].into(), keyframe: false, timestamp: at });
+            ready.push(Encoded { data: self.out[..n].into(), keyframe: false, timestamp: at, layer: 0 });
         }
         Ok(ready)
     }

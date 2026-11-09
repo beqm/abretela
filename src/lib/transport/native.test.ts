@@ -70,22 +70,25 @@ describe("NativeTransport", () => {
     ]);
   });
 
-  it("resposta e rotas de quem assiste vão para o Rust; ao sair, fecha", async () => {
+  it("resposta, rotas e tamanho de quem assiste vão para o Rust; ao sair, fecha", async () => {
     const { t } = setup();
     t.handleSignal("bia", { kind: "watch" });
     t.handleSignal("bia", { kind: "answer", sdp: "v=0 answer" });
     t.handleSignal("bia", { kind: "ice", role: "viewer", candidate: { candidate: "candidate:2 1 udp 1 5.6.7.8 9 typ host" } });
     t.handleSignal("bia", { kind: "view", height: 720 });
+    await settle();
     t.handleSignal("bia", { kind: "unwatch" });
     t.unpublish();
     expect(calls.map((c) => c.cmd)).toEqual([
       "native_viewer_open",
       "native_viewer_answer",
       "native_viewer_candidate",
+      "native_viewer_view",
       "native_viewer_close",
       "native_send_stop",
     ]);
     expect(calls[1].args).toEqual({ viewer: "bia", sdp: "v=0 answer" });
+    expect(calls[3].args).toEqual({ viewer: "bia", height: 720 });
   });
 
   it("ignora resposta de quem não tem conexão nativa e pedidos depois de parar", () => {

@@ -49,8 +49,10 @@ use windows::{
 /// Quantas texturas de entrada giram (o codificador pode ainda estar lendo a
 /// anterior quando chega a próxima).
 const INPUT_TEXTURES: usize = 6;
-/// Quanto esperar o codificador pedir um frame antes de descartar este.
-const WAIT_FOR_INPUT: Duration = Duration::from_millis(100);
+/// Quanto esperar o codificador pedir um frame antes de descartar este. Curto:
+/// com várias camadas (`send/layers.rs`) uma ocupada não pode segurar as
+/// outras, e o próximo frame da captura chega logo.
+const WAIT_FOR_INPUT: Duration = Duration::from_millis(12);
 /// De quanto em quanto a thread de eventos olha se há novidade.
 const EVENT_POLL: Duration = Duration::from_micros(500);
 
@@ -118,6 +120,8 @@ struct Timings {
     /// Do frame entrar até sair codificado.
     latency: Duration,
     out: u32,
+    /// Descartados porque o codificador ainda estava ocupado.
+    dropped: u32,
 }
 
 // SAFETY: os objetos COM foram criados numa thread MTA (multithreaded). Os
@@ -465,6 +469,7 @@ impl MfEncoder {
         }
         state.timings.wait_input += start.elapsed();
         if state.wants_input == 0 {
+            state.timings.dropped += 1;
             drop(state);
             self.dropped += 1;
             if self.dropped.is_power_of_two() {
@@ -604,9 +609,6 @@ impl VideoEncoder for MfEncoder {
         self.hardware
     }
 
-    fn size(&self) -> (u32, u32) {
-        (self.config.width, self.config.height)
-    }
 
     fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<(), BoxError> {
         if (frame.width() as u32, frame.height() as u32) != (self.config.width, self.config.height) {
@@ -653,7 +655,10 @@ impl VideoEncoder for MfEncoder {
         let t = std::mem::take(&mut self.shared.state.lock().unwrap().timings);
         let per = |d: Duration, n: u32| d.as_secs_f64() * 1000.0 / n.max(1) as f64;
         Some(format!(
-            "copy to the card {:.1} ms, waiting for the encoder to take it {:.1} ms, from frame in to frame out {:.1} ms",
+            "{} frames out ({} skipped because the encoder was still busy), copy to the card {:.1} ms, \
+             waiting for the encoder to take it {:.1} ms, from frame in to frame out {:.1} ms",
+            t.out,
+            t.dropped,
             per(t.copy, t.frames),
             per(t.wait_input, t.frames),
             per(t.latency, t.out)

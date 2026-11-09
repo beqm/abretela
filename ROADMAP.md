@@ -116,7 +116,8 @@ Partes, cada uma saindo e testada antes da próxima:
   - Falta testar: sala real entre PCs/redes diferentes e com o app nos dois
     lados.
   - Notado: com a tela parada o codificador da AMD ainda gasta ~16 KB por
-    frame repetido (enche até o bitrate); ver na 3d.
+    frame repetido (enche até o bitrate); resolvido na 3d (repete só a cada
+    5 s ou quando alguém pede quadro-chave).
   - A prévia local ainda passa pela ponte WebSocket: para medir o ganho de
     verdade (3e) ela precisa ficar leve (menos fps/resolução) no modo nativo.
 - [x] **3c. Áudio Opus** no envio nativo (`send/audio.rs`). O som da captura
@@ -141,8 +142,40 @@ Partes, cada uma saindo e testada antes da próxima:
   - Falta: testar com som real de um app numa sala; trocar de tela com e sem
     som com alguém já assistindo (quem já está conectado fica com as faixas que
     combinou até reconectar).
-- [ ] **3d. Políticas de banda**: limite de quadros-chave, espectador lento,
-  qualidade por espectador.
+- [x] **3d. Políticas de banda** (`send/layers.rs`, `send/scale.rs`): camadas
+  de qualidade, um "simulcast" feito no próprio app. Uma codificação por
+  camada em uso (a da transmissão, 720p, 480p, 360p), não por pessoa; cada
+  espectador recebe uma:
+  - a que pediu: a mensagem "view" agora vai para o Rust
+    (`native_viewer_view`), com as mesmas regras do envio pelo WebView
+    (`encodingFor`: tabela `videoBitrate`, miniatura até 480p a no máximo
+    30 fps, 0 = app escondido, só som);
+  - ou uma menor, se a conexão não aguenta: desce com a banda abaixo da
+    metade do que a camada pede por 3 s seguidos, sobe depois de 10 s com
+    folga. Dentro de uma camada o bitrate segue o mais lento dela, mas nunca
+    abaixo do ponto em que ele desceria: um espectador lento não derruba os
+    outros.
+  - O frame é reduzido no processador (`fast_image_resize`, plano por plano,
+    ~1–3 ms). Ao trocar de camada o espectador espera um quadro-chave dela.
+  - Controle de banda do str0m (`bwe().set_bitrate`): o mínimo é o bitrate da
+    camada (o str0m completa com enchimento, sem passar da estimativa) e,
+    abaixo da camada pedida, o da camada de cima, com sondagem a cada 5 s.
+    Sem isso a estimativa ficava presa no que a mídia mandava, caía e
+    derrubava espectador à toa, e quem desceu nunca subia de volta.
+  - Codificador espera no máximo 12 ms para aceitar um frame (antes 100 ms):
+    uma camada ocupada não segura as outras. O log de cada camada diz quantos
+    frames saíram e quantos foram pulados por o codificador estar ocupado.
+  - Tela parada: repete o último frame só a cada 5 s (antes 1 s) ou na hora em
+    que alguém pede quadro-chave.
+  - Testado com três abas ao mesmo tempo (`?view=480` pede menos; `?cap=3000`
+    finge conexão de 3 Mbps): cada uma recebe a sua camada (1080p, 480p,
+    720p), 0% de perda; uma que fica "lenta" desce para 720p em ~3 s e volta
+    para 1080p ~11 s depois de melhorar, sem mexer nas outras. Neste PC, com as
+    três abas decodificando na mesma placa, saem ~40 fps por camada (~20 ms
+    por frame); com três abas numa camada só dá o mesmo, então o custo é das
+    abas decodificando, não das camadas.
+  - Ver no teste real: a camada de 1080p com três abas ficou em ~3,3 Mbps
+    (a estimativa de um deles caiu), mesmo em rede local.
 - [x] **3e. Opção experimental** (falta só o teste em sala real, abaixo).
   - Chave "Envio nativo (experimental)" em Configurações → Desempenho, nos seis
     idiomas, desligada por padrão. Vale a partir da próxima sala: o modo fica

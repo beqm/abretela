@@ -33,7 +33,10 @@ const PAGE: &str = r#"<!doctype html><meta charset="utf-8"><title>Native send te
 <script>
 const id = "viewer-" + Math.random().toString(36).slice(2, 7);
 const pc = new RTCPeerConnection({ iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }] });
-const post = (path, body) => fetch(`${path}?id=${id}`, { method: "POST", body: JSON.stringify(body ?? {}) });
+const post = (path, body) => {
+  const [p, extra] = path.split("&");
+  return fetch(`${p}?id=${id}${extra ? "&" + extra : ""}`, { method: "POST", body: JSON.stringify(body ?? {}) });
+};
 pc.ontrack = (e) => {
   const stream = e.streams[0] ?? new MediaStream([e.track]);
   document.getElementById("v").srcObject = stream;
@@ -89,7 +92,15 @@ setInterval(async () => {
   });
   document.getElementById("s").textContent = text;
 }, 1000);
-post("/watch").then(poll);
+// ?view=480: pede uma altura menor (como uma janela pequena); ?cap=1500:
+// finge que a conexão só aguenta 1500 kbps
+const params = new URLSearchParams(location.search);
+post("/watch").then(async () => {
+  if (params.get("view")) await post(`/view&height=${params.get("view")}`);
+  if (params.get("cap")) await post(`/cap&kbps=${params.get("cap")}`);
+  window.asked = { view: params.get("view"), cap: params.get("cap") };
+  poll();
+});
 </script>"#;
 
 #[test]
@@ -152,7 +163,9 @@ fn native_send_browser() {
         let Ok(Some(mut req)) = server.recv_timeout(Duration::from_millis(200)) else { continue };
         let url = req.url().to_string();
         let (path, query) = url.split_once('?').unwrap_or((&url, ""));
-        let viewer = query.trim_start_matches("id=").to_string();
+        let param = |k: &str| query.split('&').find_map(|kv| kv.strip_prefix(k)?.strip_prefix('=')).unwrap_or("");
+        let viewer = param("id").to_string();
+        let number = |k: &str| param(k).parse::<u64>().unwrap_or(0);
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
         let json: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
@@ -164,6 +177,8 @@ fn native_send_browser() {
             }
             "/watch" => format!("{:?}", super::open_viewer(&viewer, &format!("\"{viewer}\""), signals.clone())),
             "/answer" => format!("{:?}", super::answer(&viewer, json["sdp"].as_str().unwrap_or("").into())),
+            "/view" => format!("{:?}", super::viewer_view(&viewer, number("height") as u32)),
+            "/cap" => format!("{:?}", super::cap_estimate(&viewer, number("kbps") * 1000)),
             "/ice" => format!("{:?}", super::remote_candidate(&viewer, json["candidate"].as_str().unwrap_or("").into())),
             "/events" => {
                 let msgs = signals.queues.lock().unwrap().remove(&viewer).unwrap_or_default();

@@ -89,6 +89,7 @@ fn main() {
             send::commands::native_viewer_open,
             send::commands::native_viewer_answer,
             send::commands::native_viewer_candidate,
+            send::commands::native_viewer_view,
             send::commands::native_viewer_close,
             send::commands::native_send_stop,
             app::commands::log_network,
