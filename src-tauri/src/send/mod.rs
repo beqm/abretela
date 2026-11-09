@@ -16,7 +16,7 @@ pub mod stun;
 mod viewer;
 
 use crate::capture::{contracts::FrameSink, packet::VideoPacket};
-use crate::encode::{self, EncoderConfig, VideoEncoder};
+use crate::encode::{self, EncodedFrame, EncoderConfig, VideoEncoder};
 use axum::body::Bytes;
 use serde::Serialize;
 use std::{
@@ -274,7 +274,13 @@ impl Sender {
                     bitrate,
                     software_only,
                 };
-                match encode::open(enc_config) {
+                let me = Arc::downgrade(&self);
+                let on_encoded: encode::OnEncoded = Arc::new(move |f| {
+                    if let Some(sender) = me.upgrade() {
+                        sender.broadcast(f);
+                    }
+                });
+                match encode::open(enc_config, on_encoded) {
                     Ok(e) => {
                         log_info!("sharing", "Native sending encodes {}x{} with {}", size.0, size.1, e.describe());
                         if !e.hardware() && !software_only {
@@ -323,17 +329,10 @@ impl Sender {
             last_encode = t0;
             let timestamp = captured.duration_since(self.started);
             match enc.encode(&frame, timestamp, keyframe) {
-                Ok(out) => {
+                Ok(()) => {
                     failures = 0;
                     stats.0 += 1;
                     stats.1 += t0.elapsed();
-                    for f in out {
-                        let shared =
-                            Arc::new(Encoded { data: f.data.into(), keyframe: f.keyframe, timestamp: f.timestamp });
-                        for tx in &targets {
-                            let _ = tx.send(ViewerMsg::Frame(shared.clone()));
-                        }
-                    }
                 }
                 Err(e) => {
                     failures += 1;
@@ -350,17 +349,30 @@ impl Sender {
                 let avg = stats.1.as_secs_f64() * 1000.0 / stats.0.max(1) as f64;
                 log_info!(
                     "sharing",
-                    "Native sending: {} frames encoded in the last 30s ({:.0} fps), {avg:.1} ms each, \
-                     {} kbps, {} viewers connected",
+                    "Native sending: {} frames encoded in the last 30s ({:.0} fps), {avg:.1} ms to hand each \
+                     to the encoder, {} kbps, {} viewers connected",
                     stats.0,
                     stats.0 as f64 / 30.0,
                     bitrate / 1000,
                     targets.len()
                 );
+                if let Some(t) = encoder.as_mut().and_then(|e| e.take_timings()) {
+                    log_info!("sharing", "Native sending, per frame: {t}");
+                }
                 stats = (0, Duration::ZERO, Instant::now());
             }
         }
         log_info!("sharing", "Native encoder thread finished");
+    }
+}
+
+impl Sender {
+    /// Um frame codificado: o mesmo para todos os conectados.
+    fn broadcast(&self, f: EncodedFrame) {
+        let shared = Arc::new(Encoded { data: f.data.into(), keyframe: f.keyframe, timestamp: f.timestamp });
+        for v in self.viewers.lock().unwrap().values().filter(|v| v.connected) {
+            let _ = v.tx.send(ViewerMsg::Frame(shared.clone()));
+        }
     }
 }
 

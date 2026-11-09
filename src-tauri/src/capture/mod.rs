@@ -213,14 +213,19 @@ mod tests {
             encoder: Option<Box<dyn VideoEncoder>>,
             started: Option<Instant>,
             frames: u32,
-            encoded: Vec<u8>,
-            keyframes: u32,
             times: Vec<Duration>,
             size: (u16, u16),
+        }
+        /// O que sai do codificador (por outra thread).
+        #[derive(Default)]
+        struct Out {
+            encoded: Vec<u8>,
+            keyframes: u32,
         }
         struct EncodingSink {
             fps: u32,
             stats: Mutex<Stats>,
+            out: Arc<Mutex<Out>>,
         }
         impl FrameSink for EncodingSink {
             fn video(&self, packet: packet::VideoPacket) {
@@ -235,17 +240,19 @@ mod tests {
                         bitrate: 8_000_000,
                         software_only: false,
                     };
-                    s.encoder = Some(encode::open(config).expect("an encoder"));
+                    let out = self.out.clone();
+                    let on_encoded: encode::OnEncoded = Arc::new(move |f| {
+                        let mut o = out.lock().unwrap();
+                        o.keyframes += f.keyframe as u32;
+                        o.encoded.extend(f.data);
+                    });
+                    s.encoder = Some(encode::open(config, on_encoded).expect("an encoder"));
                 }
                 let first = s.frames == 0;
                 let t = Instant::now();
-                let out = s.encoder.as_mut().unwrap().encode(&packet, started.elapsed(), first).unwrap();
+                s.encoder.as_mut().unwrap().encode(&packet, started.elapsed(), first).unwrap();
                 s.times.push(t.elapsed());
                 s.frames += 1;
-                for f in out {
-                    s.keyframes += f.keyframe as u32;
-                    s.encoded.extend(f.data);
-                }
             }
             fn audio(&self, _: Bytes) {}
             fn is_closed(&self) -> bool {
@@ -257,7 +264,7 @@ mod tests {
         let (height, fps, secs) = (env("CAPTURE_H", 1080), env("CAPTURE_FPS", 60), env("CAPTURE_SECS", 5));
         let gpu = std::env::var("CAPTURE_GPU").map_or(true, |v| v != "0");
         let screen = list_sources().into_iter().find(|s| s.kind == "screen").unwrap().id;
-        let sink = Arc::new(EncodingSink { fps, stats: Mutex::default() });
+        let sink = Arc::new(EncodingSink { fps, stats: Mutex::default(), out: Arc::default() });
         let stop = Arc::new(AtomicBool::new(false));
         let video = VIDEO
             .start(&screen, VideoConfig { max_height: height, fps, gpu }, sink.clone(), stop.clone())
@@ -268,27 +275,31 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
 
         let mut s = sink.stats.lock().unwrap();
+        if let Some(t) = s.encoder.as_mut().and_then(|e| e.take_timings()) {
+            println!("per frame: {t}");
+        }
+        let o = std::mem::take(&mut *sink.out.lock().unwrap());
         let elapsed = s.started.map(|t| t.elapsed().as_secs_f64()).unwrap_or(1.0);
         s.times.sort();
         let encoder = s.encoder.as_ref().map(|e| e.describe()).unwrap_or_default();
         println!(
-            "{}x{} via {encoder}: {} frames in {elapsed:.1}s ({:.1} fps), {} keyframes, {} KB ({:.0} kbps), encode time median {:?}, 95% {:?}, worst {:?}",
+            "{}x{} via {encoder}: {} frames in {elapsed:.1}s ({:.1} fps), {} keyframes, {} KB ({:.0} kbps), hand to the encoder median {:?}, 95% {:?}, worst {:?}",
             s.size.0,
             s.size.1,
             s.frames,
             s.frames as f64 / elapsed,
-            s.keyframes,
-            s.encoded.len() / 1024,
-            s.encoded.len() as f64 * 8.0 / elapsed / 1000.0,
+            o.keyframes,
+            o.encoded.len() / 1024,
+            o.encoded.len() as f64 * 8.0 / elapsed / 1000.0,
             s.times[s.times.len() / 2],
             s.times[s.times.len() * 95 / 100],
             s.times[s.times.len() - 1],
         );
         if let Ok(path) = std::env::var("ENCODE_DUMP") {
-            std::fs::write(&path, &s.encoded).unwrap();
+            std::fs::write(&path, &o.encoded).unwrap();
             println!("saved to {path}");
         }
-        assert!(s.frames > 0 && s.keyframes > 0);
+        assert!(s.frames > 0 && o.keyframes > 0);
     }
 
     /// Converte um pacote de vídeo (I420 ou NV12, BT.709 limitado) de volta

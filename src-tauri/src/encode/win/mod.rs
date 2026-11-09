@@ -7,17 +7,26 @@
 //! D3D11 (a placa lê direto dela). Se nenhum funcionar, usa o codificador do
 //! próprio Windows no processador (síncrono, memória comum).
 //!
+//! Nos assíncronos, uma thread lê os eventos: entrega cada frame pronto
+//! (`OnEncoded`) e conta os pedidos de frame, que `encode` espera. Assim a
+//! placa codifica um frame enquanto o próximo é preparado.
+//!
 //! Hoje o frame chega em memória comum (o mesmo NV12 que a captura já
 //! produz) e é copiado para a placa. Depois dá para entregar a textura da
 //! captura direto, sem passar pelo processador.
 
-use super::{EncodedFrame, EncoderConfig, VideoEncoder};
+use super::{EncodedFrame, EncoderConfig, OnEncoded, VideoEncoder};
 use crate::capture::{
     contracts::BoxError,
     packet::{PixelFormat, VideoPacket},
 };
 use std::{
-    sync::Once,
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, Once,
+    },
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 use windows::{
@@ -42,8 +51,8 @@ use windows::{
 const INPUT_TEXTURES: usize = 6;
 /// Quanto esperar o codificador pedir um frame antes de descartar este.
 const WAIT_FOR_INPUT: Duration = Duration::from_millis(100);
-/// Quanto esperar o frame codificado depois de entregar (baixa latência).
-const WAIT_FOR_OUTPUT: Duration = Duration::from_millis(40);
+/// De quanto em quanto a thread de eventos olha se há novidade.
+const EVENT_POLL: Duration = Duration::from_micros(500);
 
 fn startup() {
     static START: Once = Once::new();
@@ -63,25 +72,61 @@ struct Gpu {
 }
 
 pub struct MfEncoder {
-    transform: IMFTransform,
+    shared: Arc<Shared>,
     codec: Option<ICodecAPI>,
-    /// Só nos assíncronos (placa de vídeo).
-    events: Option<IMFMediaEventGenerator>,
     gpu: Option<Gpu>,
     name: String,
     hardware: bool,
     config: EncoderConfig,
-    /// O codificador fornece as amostras de saída (senão a gente cria).
-    provides_samples: bool,
-    output_size: u32,
-    /// Pedidos de frame (`METransformNeedInput`) ainda não atendidos.
-    wants_input: u32,
+    /// A thread de eventos (só nos assíncronos).
+    events_thread: Option<JoinHandle<()>>,
     dropped: u64,
 }
 
-// SAFETY: os objetos COM foram criados numa thread MTA (multithreaded) e o
-// codificador é usado por uma thread de cada vez (`&mut self`).
+/// O que `encode` e a thread de eventos dividem.
+struct Shared {
+    transform: IMFTransform,
+    /// Só nos assíncronos (placa de vídeo).
+    events: Option<IMFMediaEventGenerator>,
+    /// O codificador fornece as amostras de saída (senão a gente cria).
+    provides_samples: bool,
+    output_size: u32,
+    on_encoded: OnEncoded,
+    state: Mutex<State>,
+    /// Avisa `encode` que o codificador quer frame (ou falhou).
+    wake: Condvar,
+    stop: AtomicBool,
+}
+
+#[derive(Default)]
+struct State {
+    /// Pedidos de frame (`METransformNeedInput`) ainda não atendidos.
+    wants_input: u32,
+    /// Erro vindo da thread de eventos, devolvido no próximo `encode`.
+    error: Option<String>,
+    /// Quando entrou cada frame ainda dentro do codificador.
+    inside: VecDeque<Instant>,
+    timings: Timings,
+}
+
+/// Tempo somado de cada etapa, para o log.
+#[derive(Default)]
+struct Timings {
+    frames: u32,
+    copy: Duration,
+    wait_input: Duration,
+    /// Do frame entrar até sair codificado.
+    latency: Duration,
+    out: u32,
+}
+
+// SAFETY: os objetos COM foram criados numa thread MTA (multithreaded). Os
+// codificadores assíncronos do Media Foundation são feitos para receber
+// frames de uma thread e devolver por outra; o resto é usado por uma thread
+// de cada vez (`&mut self`).
 unsafe impl Send for MfEncoder {}
+unsafe impl Send for Shared {}
+unsafe impl Sync for Shared {}
 
 fn pack(hi: u32, lo: u32) -> u64 {
     ((hi as u64) << 32) | lo as u64
@@ -128,7 +173,7 @@ fn candidates(hardware: bool) -> Vec<IMFActivate> {
 }
 
 impl MfEncoder {
-    pub fn open(config: EncoderConfig) -> Result<Self, BoxError> {
+    pub fn open(config: EncoderConfig, on_encoded: OnEncoded) -> Result<Self, BoxError> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
@@ -138,7 +183,7 @@ impl MfEncoder {
         for &hardware in tiers {
             for activate in candidates(hardware) {
                 let name = friendly_name(&activate);
-                match Self::setup(&activate, &name, hardware, config) {
+                match Self::setup(&activate, &name, hardware, config, on_encoded.clone()) {
                     Ok(enc) => {
                         if !errors.is_empty() {
                             log_warn!("encode", "Skipped encoders that failed to start: {}", errors.join("; "));
@@ -166,7 +211,13 @@ impl MfEncoder {
         Err(format!("no H.264 encoder could start ({})", errors.join("; ")).into())
     }
 
-    fn setup(activate: &IMFActivate, name: &str, hardware: bool, config: EncoderConfig) -> Result<Self, BoxError> {
+    fn setup(
+        activate: &IMFActivate,
+        name: &str,
+        hardware: bool,
+        config: EncoderConfig,
+        on_encoded: OnEncoded,
+    ) -> Result<Self, BoxError> {
         unsafe {
             let transform: IMFTransform = activate.ActivateObject()?;
             let attrs = transform.GetAttributes().ok();
@@ -214,17 +265,30 @@ impl MfEncoder {
                 (true, None) => "graphics card, frames from memory",
                 _ => "processor",
             };
-            Ok(Self {
+            let shared = Arc::new(Shared {
                 transform,
-                codec,
                 events,
+                provides_samples,
+                output_size: info.cbSize.max(config.width * config.height),
+                on_encoded,
+                state: Mutex::default(),
+                wake: Condvar::new(),
+                stop: AtomicBool::new(false),
+            });
+            let events_thread = if is_async {
+                let s = shared.clone();
+                Some(std::thread::Builder::new().name("encoder events".into()).spawn(move || s.run_events())?)
+            } else {
+                None
+            };
+            Ok(Self {
+                shared,
+                codec,
                 gpu,
                 name: format!("{name} ({place})"),
                 hardware,
                 config,
-                provides_samples,
-                output_size: info.cbSize.max(config.width * config.height),
-                wants_input: 0,
+                events_thread,
                 dropped: 0,
             })
         }
@@ -239,8 +303,7 @@ impl MfEncoder {
         if !set(&CODECAPI_AVEncCommonRateControlMode, VARIANT::from(eAVEncCommonRateControlMode_LowDelayVBR.0 as u32)) {
             set(&CODECAPI_AVEncCommonRateControlMode, VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32));
         }
-        set(&CODECAPI_AVEncCommonMeanBitRate, VARIANT::from(config.bitrate));
-        // quadro-chave só quando alguém pede (quem entra, ou perda)
+        set(&CODECAPI_AVEncCommonMeanBitRate, VARIANT::from(config.bitrate));        // quadro-chave só quando alguém pede (quem entra, ou perda)
         set(&CODECAPI_AVEncMPVGOPSize, VARIANT::from(config.fps * 60 * 10));
     }
 
@@ -389,8 +452,50 @@ impl MfEncoder {
         }
     }
 
+    fn encode_async(&mut self, sample: &IMFSample) -> Result<(), BoxError> {
+        let shared = &self.shared;
+        let start = Instant::now();
+        let state = shared.state.lock().unwrap();
+        let (mut state, _) = shared
+            .wake
+            .wait_timeout_while(state, WAIT_FOR_INPUT, |s| s.wants_input == 0 && s.error.is_none())
+            .unwrap();
+        if let Some(e) = state.error.take() {
+            return Err(e.into());
+        }
+        state.timings.wait_input += start.elapsed();
+        if state.wants_input == 0 {
+            drop(state);
+            self.dropped += 1;
+            if self.dropped.is_power_of_two() {
+                log_warn!("encode", "The encoder is not keeping up, dropped {} frames so far", self.dropped);
+            }
+            return Ok(());
+        }
+        state.wants_input -= 1;
+        state.inside.push_back(Instant::now());
+        drop(state);
+        if let Err(e) = unsafe { shared.transform.ProcessInput(0, sample, 0) } {
+            shared.state.lock().unwrap().inside.pop_back();
+            return Err(e.into());
+        }
+        Ok(())
+    }
+
+    fn encode_sync(&mut self, sample: &IMFSample) -> Result<(), BoxError> {
+        let shared = &self.shared;
+        shared.state.lock().unwrap().inside.push_back(Instant::now());
+        unsafe { shared.transform.ProcessInput(0, sample, 0)? };
+        while let Some(frame) = shared.pull_output()? {
+            shared.deliver(frame);
+        }
+        Ok(())
+    }
+}
+
+impl Shared {
     /// Pega um frame codificado. `Ok(None)` = ainda não há.
-    fn pull_output(&mut self) -> Result<Option<EncodedFrame>, BoxError> {
+    fn pull_output(&self) -> Result<Option<EncodedFrame>, BoxError> {
         unsafe {
             let own = if self.provides_samples {
                 None
@@ -433,62 +538,60 @@ impl MfEncoder {
         }
     }
 
-    /// Lê os eventos do codificador assíncrono sem esperar.
-    fn poll_events(&mut self, out: &mut Vec<EncodedFrame>) -> Result<(), BoxError> {
-        let Some(events) = self.events.clone() else { return Ok(()) };
-        loop {
+    /// Entrega um frame pronto e anota quanto ele demorou lá dentro.
+    fn deliver(&self, frame: EncodedFrame) {
+        {
+            let mut state = self.state.lock().unwrap();
+            if let Some(at) = state.inside.pop_front() {
+                state.timings.latency += at.elapsed();
+                state.timings.out += 1;
+            }
+        }
+        (self.on_encoded)(frame);
+    }
+
+    fn fail(&self, error: String) {
+        self.state.lock().unwrap().error = Some(error);
+        self.wake.notify_all();
+    }
+
+    /// A thread de eventos do codificador assíncrono.
+    fn run_events(self: Arc<Self>) {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        }
+        let Some(events) = self.events.clone() else { return };
+        while !self.stop.load(Ordering::Relaxed) {
             let event = match unsafe { events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
                 Ok(e) => e,
-                Err(e) if e.code() == MF_E_NO_EVENTS_AVAILABLE => return Ok(()),
-                Err(e) => return Err(e.into()),
+                Err(e) if e.code() == MF_E_NO_EVENTS_AVAILABLE => {
+                    std::thread::sleep(EVENT_POLL);
+                    continue;
+                }
+                Err(e) => {
+                    self.fail(format!("could not read the encoder events: {e}"));
+                    return;
+                }
             };
-            let kind = MF_EVENT_TYPE(unsafe { event.GetType()? } as i32);
+            let kind = MF_EVENT_TYPE(unsafe { event.GetType() }.unwrap_or(0) as i32);
             if kind == METransformNeedInput {
-                self.wants_input += 1;
+                self.state.lock().unwrap().wants_input += 1;
+                self.wake.notify_all();
             } else if kind == METransformHaveOutput {
-                if let Some(frame) = self.pull_output()? {
-                    out.push(frame);
+                match self.pull_output() {
+                    Ok(Some(frame)) => self.deliver(frame),
+                    Ok(None) => {}
+                    Err(e) => {
+                        self.fail(format!("could not take the encoded frame: {e}"));
+                        return;
+                    }
                 }
             } else if kind == MEError {
                 let status = unsafe { event.GetStatus() }.map(|s| format!("{s:?}")).unwrap_or_default();
-                return Err(format!("the encoder reported an error {status}").into());
+                self.fail(format!("the encoder reported an error {status}"));
+                return;
             }
         }
-    }
-
-    fn encode_async(&mut self, sample: &IMFSample, out: &mut Vec<EncodedFrame>) -> Result<(), BoxError> {
-        let start = Instant::now();
-        self.poll_events(out)?;
-        while self.wants_input == 0 {
-            if start.elapsed() > WAIT_FOR_INPUT {
-                self.dropped += 1;
-                if self.dropped.is_power_of_two() {
-                    log_warn!("encode", "The encoder is not keeping up, dropped {} frames so far", self.dropped);
-                }
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(1));
-            self.poll_events(out)?;
-        }
-        unsafe { self.transform.ProcessInput(0, sample, 0)? };
-        self.wants_input -= 1;
-        let produced = out.len();
-        let start = Instant::now();
-        while out.len() == produced && start.elapsed() < WAIT_FOR_OUTPUT {
-            self.poll_events(out)?;
-            if out.len() == produced {
-                std::thread::sleep(Duration::from_micros(500));
-            }
-        }
-        Ok(())
-    }
-
-    fn encode_sync(&mut self, sample: &IMFSample, out: &mut Vec<EncodedFrame>) -> Result<(), BoxError> {
-        unsafe { self.transform.ProcessInput(0, sample, 0)? };
-        while let Some(frame) = self.pull_output()? {
-            out.push(frame);
-        }
-        Ok(())
     }
 }
 
@@ -505,7 +608,7 @@ impl VideoEncoder for MfEncoder {
         (self.config.width, self.config.height)
     }
 
-    fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<Vec<EncodedFrame>, BoxError> {
+    fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<(), BoxError> {
         if (frame.width() as u32, frame.height() as u32) != (self.config.width, self.config.height) {
             return Err(format!(
                 "frame is {}x{} but the encoder was opened for {}x{}",
@@ -523,14 +626,18 @@ impl VideoEncoder for MfEncoder {
                 }
             }
         }
+        let t = Instant::now();
         let sample = self.input_sample(frame, timestamp)?;
-        let mut out = Vec::new();
-        if self.events.is_some() {
-            self.encode_async(&sample, &mut out)?;
-        } else {
-            self.encode_sync(&sample, &mut out)?;
+        {
+            let mut state = self.shared.state.lock().unwrap();
+            state.timings.copy += t.elapsed();
+            state.timings.frames += 1;
         }
-        Ok(out)
+        if self.events_thread.is_some() {
+            self.encode_async(&sample)
+        } else {
+            self.encode_sync(&sample)
+        }
     }
 
     fn set_bitrate(&mut self, bps: u32) {
@@ -541,13 +648,28 @@ impl VideoEncoder for MfEncoder {
             }
         }
     }
+
+    fn take_timings(&mut self) -> Option<String> {
+        let t = std::mem::take(&mut self.shared.state.lock().unwrap().timings);
+        let per = |d: Duration, n: u32| d.as_secs_f64() * 1000.0 / n.max(1) as f64;
+        Some(format!(
+            "copy to the card {:.1} ms, waiting for the encoder to take it {:.1} ms, from frame in to frame out {:.1} ms",
+            per(t.copy, t.frames),
+            per(t.wait_input, t.frames),
+            per(t.latency, t.out)
+        ))
+    }
 }
 
 impl Drop for MfEncoder {
     fn drop(&mut self) {
+        self.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.events_thread.take() {
+            let _ = t.join();
+        }
         unsafe {
-            let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-            let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+            let _ = self.shared.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+            let _ = self.shared.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
         }
         if self.dropped > 0 {
             log_info!("encode", "{} closed; {} frames were dropped because it was busy", self.name, self.dropped);

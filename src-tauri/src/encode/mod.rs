@@ -6,9 +6,14 @@
 //! sistema tem a própria implementação: no Windows, Media Foundation (a placa
 //! de vídeo pelo NVENC/AMF/QuickSync, com o codificador do próprio Windows no
 //! processador como reserva).
+//!
+//! A codificação é em fila: `encode` só entrega o frame e volta; cada frame
+//! codificado sai por [`OnEncoded`] assim que fica pronto (na placa de vídeo,
+//! por outra thread). Assim a placa codifica um frame enquanto o próximo
+//! chega, em vez de esperar um sair para o outro entrar.
 
 use crate::capture::{contracts::BoxError, packet::VideoPacket};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 mod win;
 
@@ -35,6 +40,10 @@ pub struct EncodedFrame {
     pub timestamp: Duration,
 }
 
+/// Recebe cada frame codificado, na ordem, assim que fica pronto. Pode ser
+/// chamado de outra thread.
+pub type OnEncoded = Arc<dyn Fn(EncodedFrame) + Send + Sync>;
+
 pub trait VideoEncoder: Send {
     /// Para o log, ex.: "NVIDIA H.264 Encoder MFT (graphics card)".
     fn describe(&self) -> String;
@@ -42,17 +51,21 @@ pub trait VideoEncoder: Send {
     fn hardware(&self) -> bool;
     /// Largura e altura para as quais foi aberto.
     fn size(&self) -> (u32, u32);
-    /// Entrega um frame; devolve os frames codificados que ficaram prontos
-    /// (normalmente um, às vezes nenhum se o codificador segurou um pouco).
-    /// `keyframe` pede um quadro-chave.
-    fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<Vec<EncodedFrame>, BoxError>;
+    /// Entrega um frame (o resultado sai por [`OnEncoded`]). `keyframe` pede um
+    /// quadro-chave. Se o codificador ainda estiver ocupado, espera um pouco e
+    /// depois descarta este frame.
+    fn encode(&mut self, frame: &VideoPacket, timestamp: Duration, keyframe: bool) -> Result<(), BoxError>;
     /// Muda o bitrate sem reiniciar.
     fn set_bitrate(&mut self, bps: u32);
+    /// Para o log: onde o tempo foi desde a última chamada (zera a conta).
+    fn take_timings(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// O melhor codificador disponível neste PC.
-pub fn open(config: EncoderConfig) -> Result<Box<dyn VideoEncoder>, BoxError> {
-    Ok(Box::new(win::MfEncoder::open(config)?))
+pub fn open(config: EncoderConfig, on_encoded: OnEncoded) -> Result<Box<dyn VideoEncoder>, BoxError> {
+    Ok(Box::new(win::MfEncoder::open(config, on_encoded)?))
 }
 
 /// O frame (Annex B) tem um quadro IDR (NAL tipo 5)?
@@ -61,20 +74,30 @@ pub fn has_idr(annex_b: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::capture::packet::PixelFormat;
     use std::time::Instant;
 
     /// Barras que andam, em NV12.
-    fn pattern(w: u32, h: u32, n: u32) -> VideoPacket {
+    pub(crate) fn pattern(w: u32, h: u32, n: u32) -> VideoPacket {
         let mut pkt = VideoPacket::new(PixelFormat::Nv12, w, h);
         let (w, h) = (w as usize, h as usize);
         let px = pkt.pixels_mut();
         let (y, uv) = px.split_at_mut(w * h);
+        // ENCODE_NOISE=1: ruído que muda todo frame (o pior caso, como vídeo)
+        let noise = std::env::var("ENCODE_NOISE").is_ok();
+        let mut seed = 0x9e37_79b9u32.wrapping_mul(n + 1);
         for row in 0..h {
             for col in 0..w {
-                y[row * w + col] = (((col + n as usize * 8) / 64) % 8 * 28 + 16) as u8;
+                y[row * w + col] = if noise {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    (seed >> 24) as u8
+                } else {
+                    (((col + n as usize * 8) / 64) % 8 * 28 + 16) as u8
+                };
             }
         }
         for (i, v) in uv.iter_mut().enumerate() {
@@ -84,48 +107,56 @@ mod tests {
     }
 
     fn run(software_only: bool) {
+        use std::sync::Mutex;
         let (w, h, fps) = (1920, 1080, 60);
         let config = EncoderConfig { width: w, height: h, fps, bitrate: 6_000_000, software_only };
-        let mut enc = open(config).expect("an encoder");
+        // quando cada frame entrou, para medir quanto demorou para sair
+        let started = Instant::now();
+        let out: Arc<Mutex<Vec<(EncodedFrame, Duration)>>> = Arc::default();
+        let sink = out.clone();
+        let on_encoded: OnEncoded = Arc::new(move |f| {
+            let latency = started.elapsed().saturating_sub(f.timestamp);
+            sink.lock().unwrap().push((f, latency));
+        });
+        let mut enc = open(config, on_encoded).expect("an encoder");
         println!("encoder: {} (hardware: {})", enc.describe(), enc.hardware());
         let frames = 120;
-        let mut out = Vec::new();
-        let mut times = Vec::new();
-        let mut max_delay = 0;
         for n in 0..frames {
+            // no ritmo da captura (60 fps)
+            let due = Duration::from_secs(1) * n / fps;
+            std::thread::sleep(due.saturating_sub(started.elapsed()));
             let pkt = pattern(w, h, n);
-            let t = Instant::now();
-            let ts = Duration::from_secs(1) * n / fps;
-            let ready = enc.encode(&pkt, ts, n == 60).unwrap();
-            times.push(t.elapsed());
-            // quantos frames o codificador segurou (atraso)
-            for f in &ready {
-                let index = (f.timestamp.as_secs_f64() * fps as f64).round() as u32;
-                max_delay = max_delay.max(n - index);
-            }
-            out.extend(ready);
+            enc.encode(&pkt, started.elapsed(), n == 60).unwrap();
         }
-        times.sort();
-        let bytes: usize = out.iter().map(|f| f.data.len()).sum();
+        std::thread::sleep(Duration::from_millis(300));
+        println!("{}", enc.take_timings().unwrap_or_default());
+        drop(enc);
+        let out = std::mem::take(&mut *out.lock().unwrap());
+        let mut latencies: Vec<Duration> = out.iter().map(|(_, l)| *l).collect();
+        latencies.sort();
+        let bytes: usize = out.iter().map(|(f, _)| f.data.len()).sum();
+        let median = latencies[latencies.len() / 2];
         println!(
-            "{} frames in, {} out, {} keyframes, {} KB, encode time median {:?}, worst {:?}, held up to {max_delay} frames",
+            "{} frames in, {} out, {} keyframes, {} KB, from frame in to frame out: median {:?}, worst {:?}",
             frames,
             out.len(),
-            out.iter().filter(|f| f.keyframe).count(),
+            out.iter().filter(|(f, _)| f.keyframe).count(),
             bytes / 1024,
-            times[times.len() / 2],
-            times[times.len() - 1],
+            median,
+            latencies[latencies.len() - 1],
         );
         if let Ok(path) = std::env::var("ENCODE_DUMP") {
-            let all: Vec<u8> = out.iter().flat_map(|f| f.data.clone()).collect();
+            let all: Vec<u8> = out.iter().flat_map(|(f, _)| f.data.clone()).collect();
             std::fs::write(&path, all).unwrap();
             println!("saved to {path} (play with: ffplay {path})");
         }
+        let out: Vec<EncodedFrame> = out.into_iter().map(|(f, _)| f).collect();
         assert!(out.len() >= frames as usize - 5, "most frames come out");
-        assert!(max_delay <= 1, "low latency: held {max_delay} frames");
+        assert!(median < Duration::from_millis(40), "low latency: median {median:?}");
         assert!(out[0].keyframe && has_idr(&out[0].data), "starts with a keyframe");
         assert!(out[0].data.starts_with(&[0, 0, 0, 1]) || out[0].data.starts_with(&[0, 0, 1]), "Annex B");
         assert!(out.iter().skip(1).any(|f| f.keyframe), "the requested keyframe came out");
+        assert!(out.windows(2).all(|p| p[0].timestamp <= p[1].timestamp), "in order");
     }
 
     /// `cargo test encode_hardware -- --ignored --nocapture`

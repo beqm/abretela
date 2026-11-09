@@ -97,12 +97,22 @@ Partes, cada uma saindo e testada antes da próxima:
     com dois espectadores Chromium: conecta em ~0,1 s, H.264 1080p
     decodificado, 0% de perda por 2,5 min, fecha limpo. Testes do
     `NativeTransport` com o Rust simulado e um espectador da malha.
-  - Com a tela em uso (navegador): imagem 1080p certa, 0% de perda, nenhum
-    pedido de quadro-chave, ~4–6 Mbps. Mas a ~40 fps (debug) e ~44–54 fps
-    (release), não 60: cada frame leva ~17 ms no `encode` (debug). Suspeitas:
-    a espera do frame codificado dormindo de 0,5–1 ms (`encode_async` espera
-    cada frame sair antes do próximo, sem sobrepor) e a cópia do NV12 pela
-    memória do processador. Ver na 3d.
+  - Com a tela em uso (navegador com YouTube): imagem 1080p certa, 0% de
+    perda, nenhum pedido de quadro-chave, ~4–6 Mbps, mas ~40–54 fps.
+  - **fps corrigido (codificação em fila):** o `encode` esperava cada frame
+    sair antes de aceitar o próximo. Agora só entrega e volta; uma thread lê
+    os eventos da placa e os frames saem por `OnEncoded` assim que ficam
+    prontos. O log mostra por etapa (cópia para a placa, espera para entrar,
+    tempo dentro do codificador). Medido: copiar é 0,2 ms; o codificador da
+    AMD leva ~6 ms por frame 1080p, mesmo com ruído (`ENCODE_NOISE=1`), e de
+    ponta a ponta com frames sintéticos (`NATIVE_SYNTH=1`) o navegador recebe
+    **60 fps cravados**, 8 Mbps, 0% de perda.
+  - Na tela real com um vídeo tocando, o mesmo codificador chegou a ~16 ms
+    por frame: a AMD só aceita o próximo frame depois de terminar o anterior,
+    e a parte da placa que codifica é a mesma que decodifica o vídeo que está
+    tocando. Mudar "qualidade x velocidade" não ajudou. O envio pelo WebView
+    sofre o mesmo (e codifica uma vez por espectador). Ver de novo na 3e, na
+    comparação lado a lado.
   - Falta testar: sala real entre PCs/redes diferentes e com o app nos dois
     lados.
   - Notado: com a tela parada o codificador da AMD ainda gasta ~16 KB por

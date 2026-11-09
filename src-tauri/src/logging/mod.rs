@@ -131,7 +131,8 @@ fn raw(text: &str) {
 }
 
 fn append(today: &str, text: &str) {
-    #[cfg(debug_assertions)]
+    // nos testes também, inclusive com --release (medir desempenho)
+    #[cfg(any(debug_assertions, test))]
     eprint!("{text}");
 
     let Ok(mut guard) = LOGGER.lock() else { return };

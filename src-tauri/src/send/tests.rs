@@ -82,7 +82,26 @@ post("/watch").then(poll);
 fn native_send_browser() {
     let secs: u64 = std::env::var("NATIVE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(120);
     let sink = super::start(60, 8_000_000);
-    let (stop, video) = crate::capture::start_video_for_test(sink, 1080, 60);
+    // NATIVE_SYNTH=1: frames gerados a 60 fps (barras que andam; com
+    // ENCODE_NOISE=1, ruído) em vez da tela, para medir sem depender do que
+    // está aberto
+    let (stop, stop_video): (_, Box<dyn FnOnce()>) = if std::env::var("NATIVE_SYNTH").is_ok() {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (s, sink) = (stop.clone(), sink.clone());
+        let t = std::thread::spawn(move || {
+            let start = Instant::now();
+            let mut n = 0u32;
+            while !s.load(Ordering::Relaxed) {
+                std::thread::sleep((Duration::from_secs(1) * n / 60).saturating_sub(start.elapsed()));
+                sink.video(crate::encode::tests::pattern(1920, 1080, n));
+                n += 1;
+            }
+        });
+        (stop, Box::new(move || drop(t.join())))
+    } else {
+        let (stop, video) = crate::capture::start_video_for_test(sink, 1080, 60);
+        (stop, Box::new(move || (video.stop)()))
+    };
     let signals = Arc::new(HttpSignals::default());
 
     let server = tiny_http::Server::http("127.0.0.1:3011").unwrap();
@@ -114,7 +133,7 @@ fn native_send_browser() {
         let _ = req.respond(tiny_http::Response::from_string(reply));
     }
     stop.store(true, Ordering::Relaxed);
-    (video.stop)();
+    stop_video();
     super::stop();
     std::thread::sleep(Duration::from_millis(300));
 }
