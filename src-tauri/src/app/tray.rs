@@ -82,7 +82,7 @@ fn refresh_tooltip(app: &AppHandle) {
 }
 
 /// Liga/desliga o indicador de transmissão: bolinha vermelha no ícone da
-/// bandeja e selo sobre o ícone na barra de tarefas.
+/// bandeja e selo sobre o ícone na barra de tarefas (no macOS, no Dock).
 pub fn set_live(app: &AppHandle, live: bool) {
     let tray = app.state::<Tray>();
     tray.live.store(live, Ordering::Relaxed);
@@ -96,6 +96,10 @@ pub fn set_live(app: &AppHandle, live: bool) {
     #[cfg(windows)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_overlay_icon(live.then(live_badge));
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_badge_label(live.then(|| "●".to_string()));
     }
     refresh_tooltip(app);
 }
