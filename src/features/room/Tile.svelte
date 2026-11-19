@@ -3,6 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { RemoteView } from "../../lib/transport/types";
   import { t } from "../../lib/prefs.svelte";
+  import { windowFollowsElementFullscreen } from "../../lib/platform";
   import Icon from "../../ui/Icon.svelte";
 
   type Props = {
@@ -70,7 +71,7 @@
 
   onMount(() => {
     const onChange = () => {
-      if (!document.fullscreenElement) getCurrentWindow().setFullscreen(false);
+      if (!document.fullscreenElement && windowFollowsElementFullscreen()) getCurrentWindow().setFullscreen(false);
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
@@ -82,7 +83,7 @@
       await document.exitFullscreen();
     } else {
       await tile.requestFullscreen();
-      await getCurrentWindow().setFullscreen(true);
+      if (windowFollowsElementFullscreen()) await getCurrentWindow().setFullscreen(true);
     }
   }
 
