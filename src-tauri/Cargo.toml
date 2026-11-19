@@ -39,6 +39,10 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 # WebRTC do envio nativo; criptografia do próprio macOS
 str0m = { version = "0.25.0", default-features = false, features = ["apple-crypto"] }
 libc = "0.2"
+objc2-video-toolbox = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-core-foundation = "0.3"
 
 [profile.release]
 strip = true
