@@ -92,6 +92,8 @@ pub fn set_live(app: &AppHandle, live: bool) {
         let image = if live { with_live_dot(&base) } else { base };
         let _ = icon.set_icon(Some(image));
     }
+    // o selo sobre o ícone da barra de tarefas só existe no Windows
+    #[cfg(windows)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_overlay_icon(live.then(live_badge));
     }
@@ -133,6 +135,7 @@ fn with_live_dot(base: &Image<'_>) -> Image<'static> {
     Image::new_owned(rgba, w, h)
 }
 
+#[cfg(windows)]
 fn live_badge() -> Image<'static> {
     let size = 32;
     let mut rgba = vec![0u8; (size * size * 4) as usize];

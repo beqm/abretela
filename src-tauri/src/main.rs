@@ -39,9 +39,10 @@ fn main() {
             logging::init(
                 fallback,
                 &format!(
-                    "AbreTela v{} started · {} · WebView2 {}",
+                    "AbreTela v{} started · {} · {} {}",
                     app.package_info().version,
-                    logging::windows_version(),
+                    logging::os_version(),
+                    if cfg!(windows) { "WebView2" } else { "WebKit" },
                     tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
                 ),
             );
