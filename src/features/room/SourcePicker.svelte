@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { capturePermission, getThumbnail, listSources, type Source } from "../../lib/capture/native";
   import {
     allowedFps,
     allowedHeights,
@@ -30,6 +30,8 @@
   let sources = $state<Source[]>([]);
   let thumbs = $state<Record<string, string | null>>({});
   let loading = $state(true);
+  /** O sistema deixa capturar a tela (no macOS a pessoa precisa permitir). */
+  let allowed = $state(true);
   let selected = $state<string | null>(null);
   // svelte-ignore state_referenced_locally
   let quality = $state<Quality>(clampQuality(prefs, settings));
@@ -50,6 +52,8 @@
   async function refresh() {
     loading = true;
     sources = await listSources();
+    // sem nenhuma fonte, pode ser a permissão do sistema que falta
+    allowed = sources.length > 0 || (await capturePermission().catch(() => true));
     thumbs = {};
     loading = false;
     if (selected && !sources.some((s) => s.id === selected)) selected = null;
@@ -92,6 +96,11 @@
     <div class="sources">
       {#if loading}
         <div class="picker-empty"><span class="spinner"></span> {t("searching")}</div>
+      {:else if !allowed}
+        <div class="picker-empty permission">
+          <span class="muted">{t("screenPermission")}</span>
+          <button class="btn primary" onclick={() => capturePermission(true).then(refresh)}>{t("screenPermissionAllow")}</button>
+        </div>
       {:else if visible.length === 0}
         <div class="picker-empty muted">{t("nothingFound")}</div>
       {:else}
@@ -180,6 +189,12 @@
     align-items: center;
     gap: 10px;
     padding: 40px;
+  }
+
+  .picker-empty.permission {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
   }
 
   .source {

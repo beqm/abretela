@@ -57,6 +57,18 @@ fn random_token() -> String {
     format!("{a:016x}{b:016x}")
 }
 
+/// O sistema deixa este app capturar a tela? Só o macOS exige que a pessoa
+/// permita; com `ask`, pede a permissão a ela.
+pub fn permission(ask: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    return mac::permission(ask);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ask;
+        true
+    }
+}
+
 pub fn list_sources() -> Vec<Source> {
     VIDEO.list()
 }

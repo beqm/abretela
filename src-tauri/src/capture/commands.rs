@@ -9,6 +9,11 @@ pub async fn list_sources() -> Vec<Source> {
 }
 
 #[tauri::command]
+pub async fn capture_permission(ask: bool) -> bool {
+    tokio::task::spawn_blocking(move || super::permission(ask)).await.unwrap_or(true)
+}
+
+#[tauri::command]
 pub async fn thumbnail(id: String) -> Option<String> {
     tokio::task::spawn_blocking(move || super::thumbnail(&id)).await.ok().flatten()
 }

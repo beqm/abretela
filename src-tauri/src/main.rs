@@ -80,6 +80,7 @@ fn main() {
             room::commands::create_room,
             room::commands::close_room,
             capture::commands::list_sources,
+            capture::commands::capture_permission,
             capture::commands::thumbnail,
             capture::commands::start_capture,
             capture::commands::stop_capture,

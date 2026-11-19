@@ -25,7 +25,9 @@ use objc2::{
     runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject},
     AllocAnyThread, DefinedClass,
 };
-use objc2_core_graphics::kCGDisplayStreamYCbCrMatrix_ITU_R_709_2;
+use objc2_core_graphics::{
+    kCGDisplayStreamYCbCrMatrix_ITU_R_709_2, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
+};
 use objc2_core_media::{CMSampleBuffer, CMTime};
 use objc2_core_video::{
     kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, CVPixelBuffer,
@@ -55,6 +57,23 @@ pub fn lower_thread_priority() {
     unsafe {
         libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
     }
+}
+
+/// O macOS deixa este app gravar a tela? Com `ask`, pede: na primeira vez o
+/// sistema pergunta; depois disso só dá para mudar nos Ajustes, e por isso
+/// eles são abertos na página certa. A permissão só vale depois de reabrir o
+/// app.
+pub fn permission(ask: bool) -> bool {
+    if CGPreflightScreenCaptureAccess() {
+        return true;
+    }
+    if ask && !CGRequestScreenCaptureAccess() {
+        let page = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+        if let Err(e) = std::process::Command::new("open").arg(page).spawn() {
+            log_warn!("capture", "Could not open the screen recording settings: {e}");
+        }
+    }
+    false
 }
 
 /// Para mandar objetos do ScreenCaptureKit a outra thread.

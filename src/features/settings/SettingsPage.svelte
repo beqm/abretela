@@ -4,6 +4,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { findUpdate, installUpdate, type Update } from "../../lib/update";
   import { LANGUAGES, prefs, t, type Theme } from "../../lib/prefs.svelte";
+  import { canSendFromWebView } from "../../lib/capture/support";
   import Icon, { type IconName } from "../../ui/Icon.svelte";
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
@@ -185,12 +186,17 @@
               checked={prefs.hwAccel}
               onchange={(v) => (prefs.hwAccel = v)}
             />
-            <Toggle
-              label={t("nativeSend")}
-              hint={t("nativeSendHint")}
-              checked={prefs.nativeSend}
-              onchange={(v) => (prefs.nativeSend = v)}
-            />
+            {#if canSendFromWebView()}
+              <Toggle
+                label={t("nativeSend")}
+                hint={t("nativeSendHint")}
+                checked={prefs.nativeSend}
+                onchange={(v) => (prefs.nativeSend = v)}
+              />
+            {:else}
+              <!-- onde o WebView não consegue mandar a tela (macOS), não há o que escolher -->
+              <Toggle label={t("nativeSend")} hint={t("nativeSendAlwaysOn")} checked disabled onchange={() => {}} />
+            {/if}
           </div>
         </section>
       {:else if section === "appearance"}

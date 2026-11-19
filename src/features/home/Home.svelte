@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
+  import { shouldSendNatively } from "../../lib/capture/support";
   import { WrongPasswordError } from "../../lib/signaling";
   import { parseInvite } from "../../lib/invite";
   import {
@@ -101,7 +102,7 @@
         lang: prefs.lang,
       });
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
-        nativeSend: prefs.nativeSend,
+        nativeSend: shouldSendNatively(prefs.nativeSend),
       });
       try {
         await client.connect();
@@ -130,7 +131,7 @@
     }
     busy = t("connecting");
     try {
-      const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: prefs.nativeSend });
+      const client = new RoomClient(invite.ws, trimmedName, password, { nativeSend: shouldSendNatively(prefs.nativeSend) });
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
