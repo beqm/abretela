@@ -1,5 +1,18 @@
 # Changelog
 
+## [Não lançado]
+
+### Novidades
+- **Versão para Mac**: o AbreTela agora roda em Macs com chip da Apple (macOS 14 ou mais novo). Dá para criar salas, assistir e transmitir telas e janelas com som, junto com quem está no Windows.
+  - No Mac a tela é sempre codificada pelo próprio app (o "envio nativo" do Windows), pelo chip.
+  - Para transmitir, o macOS pede a permissão de gravação de tela; o app avisa e leva até o lugar certo dos Ajustes.
+  - O app ainda não é assinado pela Apple: veja no README como abrir pela primeira vez.
+- A página do convite mostra o botão de download do sistema de quem abriu o link.
+
+### Por dentro
+- O que é de cada sistema fica em pastas próprias (`capture/mac`, `encode/mac`, `logging/mac`); nada muda no Windows.
+- Os testes automáticos e a publicação das versões rodam no Windows e no macOS.
+
 ## [0.5.0] - 2026-11-09
 
 ### Novidades

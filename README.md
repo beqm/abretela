@@ -4,13 +4,15 @@
 
 <h1 align="center">AbreTela</h1>
 
-<p align="center">Compartilhamento de tela entre amigos, com áudio, para Windows.</p>
+<p align="center">Compartilhamento de tela entre amigos, com áudio, para Windows e Mac.</p>
 
 ---
 
 O AbreTela permite que um grupo de pessoas transmita e assista às telas umas das outras ao mesmo tempo: jogos, aplicativos ou a tela inteira, com o áudio junto. Uma pessoa cria a sala e envia o link de convite; as demais entram com um clique. Não é necessário criar conta nem configurar servidor ou roteador.
 
 ## Instalação
+
+### Windows
 
 1. Acesse a página de **[Releases](https://github.com/beqm/abretela/releases/latest)** e baixe o arquivo `AbreTela_..._x64-setup.exe`.
 2. Execute o instalador.
@@ -22,6 +24,28 @@ Compatível com Windows 10 e Windows 11.
 > **Aviso do Windows na instalação**
 >
 > Ao abrir o instalador, o Windows pode exibir a mensagem *"O Windows protegeu o computador"*. Isso acontece porque o instalador ainda não possui assinatura digital, e não indica um problema no arquivo. Para continuar, clique em **Mais informações** e depois em **Executar assim mesmo**.
+
+### Mac
+
+1. Acesse a página de **[Releases](https://github.com/beqm/abretela/releases/latest)** e baixe o arquivo `AbreTela_..._aarch64.dmg`.
+2. Abra o arquivo e arraste o AbreTela para a pasta **Aplicativos**.
+3. As atualizações seguintes são instaladas automaticamente ao abrir o app.
+
+Compatível com Macs com chip da Apple (M1 ou mais novo) e macOS 14 ou mais novo.
+
+> [!WARNING]
+> **Aviso do macOS na primeira abertura**
+>
+> O app ainda não é assinado nem verificado pela Apple, então o macOS se recusa a abri-lo na primeira vez. Isso não indica um problema no arquivo. Para liberar, tente abrir o AbreTela uma vez, vá em **Ajustes do Sistema > Privacidade e Segurança**, role até o aviso sobre o AbreTela e clique em **Abrir Mesmo Assim**.
+>
+> Se o aviso não aparecer ali, abra o **Terminal** e rode `xattr -dr com.apple.quarantine /Applications/AbreTela.app`.
+
+> [!IMPORTANT]
+> **Permissões que o macOS pede**
+>
+> - **Gravação de Tela e Áudio do Sistema:** necessária para transmitir. O app mostra o aviso na primeira vez que você clica em **Abrir minha tela**; depois de permitir em **Ajustes do Sistema > Privacidade e Segurança**, feche e abra o AbreTela de novo. Para só assistir, não é preciso.
+> - **Rede local:** permite a conexão direta com quem está na mesma rede que você.
+> - Depois de uma atualização, o macOS pode pedir a gravação de tela de novo.
 
 ## Como usar
 
@@ -37,6 +61,7 @@ Compatível com Windows 10 e Windows 11.
 - As opções da sala (botão ao lado de **Criar sala**) permitem definir uma senha própria e os limites de qualidade da transmissão.
 - Para reduzir o impacto em jogos, o app envia uma versão menor da tela para quem a vê em miniatura e não envia vídeo para quem está com o AbreTela minimizado.
 - Se a transmissão aparecer com a tela preta, desative **Aceleração de hardware** em **Configurações > Geral**.
+- No Mac, fechar a janela deixa o app na barra de menus; o ícone dele fica lá em cima, perto do relógio.
 
 ## Como a conexão funciona
 
