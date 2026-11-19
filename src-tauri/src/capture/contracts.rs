@@ -83,6 +83,8 @@ pub trait AudioSource: Sync {
 }
 
 /// Converte frames do tipo `F` (o frame da fonte de vídeo) em pacotes.
+// no macOS o próprio sistema converte, e ninguém implementa este contrato
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub trait FrameConverter<F> {
     /// Converte e reduz o frame para caber em `max_w` x `max_h`.
     fn convert(&mut self, frame: &mut F, max_w: u32, max_h: u32) -> Result<VideoPacket, BoxError>;

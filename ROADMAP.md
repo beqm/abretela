@@ -302,6 +302,22 @@ a manda ao servidor), então ninguém precisa digitar.
 
 ## 3. Linux e Mac
 
+**Mac: feito** (Apple Silicon, macOS 14+). Transmite pelo envio nativo e assiste
+pelo WebView, como decidido abaixo. O que entrou:
+
+- Captura e som: ScreenCaptureKit (`capture/mac/`). O sistema já entrega NV12
+  no tamanho final; com a aceleração desligada, BGRA convertido no processador.
+- Codificador: VideoToolbox (`encode/mac/`), com o controle de banda de baixa
+  latência do chip. Medido num M5 Pro: 1080p60 a ~4 ms por frame.
+- Sem `MediaStreamTrackGenerator` no WKWebView, o envio nativo é obrigatório
+  (`src/lib/capture/support.ts`) e a prévia da própria tela vai por um canvas.
+- Testado com `native_send_browser` e o WebKit assistindo: 1080p a 61 fps, 0%
+  de perda, Opus estéreo, camadas diferentes por espectador.
+- Falta: Macs Intel (binário universal), assinatura e notarização da Apple
+  (sem elas o Gatekeeper bloqueia na primeira abertura e a permissão de
+  gravação de tela pode ser pedida de novo a cada atualização), medir o
+  WebView e a placa no `[perf]`, e testar em sala real com vários Macs.
+
 Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
 
 | Parte | Windows (hoje) | Mac | Linux |

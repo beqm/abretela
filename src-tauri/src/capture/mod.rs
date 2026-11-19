@@ -1,5 +1,5 @@
 //! Captura nativa de telas, janelas e som. Junta as peças de `contracts.rs`:
-//! a fonte de vídeo e de áudio do sistema (hoje `win/`), a conversão e o
+//! a fonte de vídeo e de áudio do sistema (`win/` ou `mac/`), a conversão e o
 //! destino dos pacotes (hoje o WebSocket local de `sink.rs`, que o app
 //! transforma em faixas para o WebRTC).
 
@@ -7,7 +7,10 @@ pub mod commands;
 pub mod contracts;
 mod convert;
 pub mod packet;
+#[cfg(target_os = "macos")]
+mod mac;
 mod sink;
+#[cfg(windows)]
 mod win;
 
 use contracts::{AudioSource, FrameSink, VideoConfig, VideoSource};
@@ -23,10 +26,19 @@ use std::{
 };
 
 /// Peças específicas do sistema (prioridade de thread etc.).
+#[cfg(target_os = "macos")]
+use mac as platform;
+#[cfg(windows)]
 use win as platform;
 
+#[cfg(windows)]
 static VIDEO: win::WgcSource = win::WgcSource;
+#[cfg(windows)]
 static AUDIO: win::WasapiLoopback = win::WasapiLoopback;
+#[cfg(target_os = "macos")]
+static VIDEO: mac::SckSource = mac::SckSource;
+#[cfg(target_os = "macos")]
+static AUDIO: mac::SckAudio = mac::SckAudio;
 
 pub use sink::serve;
 
@@ -43,6 +55,18 @@ fn random_token() -> String {
     let a = RandomState::new().hash_one(Instant::now());
     let b = RandomState::new().hash_one(std::process::id());
     format!("{a:016x}{b:016x}")
+}
+
+/// O sistema deixa este app capturar a tela? Só o macOS exige que a pessoa
+/// permita; com `ask`, pede a permissão a ela.
+pub fn permission(ask: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    return mac::permission(ask);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ask;
+        true
+    }
 }
 
 pub fn list_sources() -> Vec<Source> {
@@ -97,7 +121,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
     let video = match VIDEO.start(id, config, sink.clone(), stop.clone()) {
         Ok(video) => video,
         Err(e) => {
-            log_error!("capture", "Windows refused to start the capture: {e}");
+            log_error!("capture", "The system refused to start the capture: {e}");
             stop.store(true, Ordering::Relaxed);
             WebSocketSink::discard(&token);
             return Err(e);

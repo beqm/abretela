@@ -1,5 +1,6 @@
 //! Log em arquivo, um por dia (`abretela-AAAA-MM-DD.log`), na pasta `logs` ao
-//! lado do executável instalado. Guarda os últimos dias e apaga o resto.
+//! lado do executável instalado (no macOS, na pasta de logs do app, em
+//! `~/Library/Logs`). Guarda os últimos dias e apaga o resto.
 //! Recebe linhas do Rust e do frontend (comando `log`).
 //!
 //! O texto é em inglês e pensado para ser lido por gente:
@@ -36,6 +37,7 @@ struct Now {
     time: String,
 }
 
+#[cfg(windows)]
 fn now() -> Now {
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     let mut t = unsafe { std::mem::zeroed() };
@@ -45,6 +47,9 @@ fn now() -> Now {
         time: format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond),
     }
 }
+
+#[cfg(target_os = "macos")]
+use mac::now;
 
 fn open(dir: &Path, day: &str) -> (Option<File>, u64) {
     let path = dir.join(format!("abretela-{day}.log"));
@@ -76,16 +81,21 @@ fn prune(dir: &Path) {
 }
 
 /// Pasta `logs` ao lado do .exe; se não der para escrever lá, usa `fallback`.
+/// No macOS é sempre `fallback`: o executável fica dentro do `.app`, e
+/// escrever ali quebraria a assinatura do app.
 fn pick_dir(fallback: PathBuf) -> PathBuf {
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("logs")));
-    if let Some(dir) = beside_exe {
-        if fs::create_dir_all(&dir).is_ok() {
-            let probe = dir.join(".teste");
-            if fs::write(&probe, b"").is_ok() {
-                let _ = fs::remove_file(probe);
-                return dir;
+    #[cfg(windows)]
+    {
+        let beside_exe = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|p| p.join("logs")));
+        if let Some(dir) = beside_exe {
+            if fs::create_dir_all(&dir).is_ok() {
+                let probe = dir.join(".teste");
+                if fs::write(&probe, b"").is_ok() {
+                    let _ = fs::remove_file(probe);
+                    return dir;
+                }
             }
         }
     }
@@ -157,9 +167,18 @@ fn append(today: &str, text: &str) {
     }
 }
 
+/// O sistema e a versão, para o cabeçalho do log.
+pub fn os_version() -> String {
+    #[cfg(windows)]
+    return windows_version();
+    #[cfg(target_os = "macos")]
+    return mac::os_version();
+}
+
 /// Ex.: "Windows 10 22H2 (build 19045.5737)". O Windows 11 ainda se apresenta
 /// como "Windows 10" no registro, então a versão vem do número do build.
-pub fn windows_version() -> String {
+#[cfg(windows)]
+fn windows_version() -> String {
     let build = reg_string("CurrentBuildNumber").unwrap_or_default();
     let ubr = reg_dword("UBR");
     let display = reg_string("DisplayVersion").or_else(|| reg_string("ReleaseId"));
@@ -183,12 +202,15 @@ pub fn windows_version() -> String {
     out
 }
 
+#[cfg(windows)]
 const NT_KEY: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
 
+#[cfg(windows)]
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+#[cfg(windows)]
 fn reg_string(name: &str) -> Option<String> {
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
     let (key, name) = (wide(NT_KEY), wide(name));
@@ -212,6 +234,7 @@ fn reg_string(name: &str) -> Option<String> {
     Some(String::from_utf16_lossy(&buf[..len]))
 }
 
+#[cfg(windows)]
 fn reg_dword(name: &str) -> Option<u32> {
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD};
     let (key, name) = (wide(NT_KEY), wide(name));
@@ -246,6 +269,12 @@ macro_rules! log_error {
     ($area:expr, $($arg:tt)*) => { $crate::logging::write("error", $area, &format!($($arg)*)) };
 }
 
-// depois das macros, que ele usa
+// depois das macros, que eles usam
+#[cfg(target_os = "macos")]
+mod mac;
+#[cfg(windows)]
 pub mod network;
+#[cfg(windows)]
 pub mod perf;
+#[cfg(target_os = "macos")]
+pub use mac::{network, perf};

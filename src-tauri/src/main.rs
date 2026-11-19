@@ -39,9 +39,10 @@ fn main() {
             logging::init(
                 fallback,
                 &format!(
-                    "AbreTela v{} started · {} · WebView2 {}",
+                    "AbreTela v{} started · {} · {} {}",
                     app.package_info().version,
-                    logging::windows_version(),
+                    logging::os_version(),
+                    if cfg!(windows) { "WebView2" } else { "WebKit" },
                     tauri::webview_version().unwrap_or_else(|_| "unknown".into()),
                 ),
             );
@@ -53,8 +54,9 @@ fn main() {
             });
             tray::setup(app.handle())?;
             // instalado, o próprio instalador registra o abretela://; em
-            // desenvolvimento, registra aqui
-            #[cfg(debug_assertions)]
+            // desenvolvimento, registra aqui (no macOS o link só existe no app
+            // empacotado: vem do Info.plist)
+            #[cfg(all(debug_assertions, not(target_os = "macos")))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 if let Err(e) = app.deep_link().register_all() {
@@ -79,6 +81,7 @@ fn main() {
             room::commands::create_room,
             room::commands::close_room,
             capture::commands::list_sources,
+            capture::commands::capture_permission,
             capture::commands::thumbnail,
             capture::commands::start_capture,
             capture::commands::stop_capture,
@@ -99,11 +102,16 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o app")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        .run(|app, event| match event {
+            RunEvent::Exit => {
                 log_info!("app", "App closed");
                 capture::stop();
                 app.state::<RoomState>().close();
             }
+            // clique no ícone do Dock com a janela escondida (fechada para a
+            // barra de menus): mostra de novo
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app),
+            _ => {}
         });
 }

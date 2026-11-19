@@ -1,10 +1,12 @@
 // Recebe os frames da captura nativa (Rust) por um WebSocket local e os
-// transforma em MediaStreamTracks: vídeo via MediaStreamTrackGenerator e
-// áudio via AudioWorklet -> MediaStreamAudioDestinationNode.
+// transforma em MediaStreamTracks: vídeo via MediaStreamTrackGenerator (ou,
+// onde ele não existe, um canvas) e áudio via AudioWorklet ->
+// MediaStreamAudioDestinationNode.
 
 import { invoke } from "@tauri-apps/api/core";
 import { describeError, log } from "../log";
 import { HEADER, KIND_AUDIO, KIND_VIDEO, packetKind, payload, readVideoHeader } from "./packet";
+import { canSendFromWebView } from "./support";
 
 declare class MediaStreamTrackGenerator extends MediaStreamTrack {
   constructor(init: { kind: "video" | "audio" });
@@ -27,9 +29,58 @@ export type NativeCapture = {
   frameHeight: number;
 };
 
+/** Onde os frames viram uma faixa de vídeo. `write` fica com o frame. */
+type VideoOutput = {
+  track: MediaStreamTrack;
+  write: (frame: VideoFrame) => Promise<void>;
+  close: () => void;
+};
+
+/** No Chromium (WebView2): a faixa recebe os frames direto e serve para o WebRTC. */
+function generatorOutput(): VideoOutput {
+  const track = new MediaStreamTrackGenerator({ kind: "video" });
+  track.contentHint = "motion";
+  const writer = track.writable.getWriter();
+  return {
+    track,
+    write: (frame) => writer.write(frame),
+    close: () => void writer.close().catch(() => {}),
+  };
+}
+
+/**
+ * Sem MediaStreamTrackGenerator (WKWebView, macOS): cada frame é desenhado num
+ * canvas, e a faixa é o vídeo desse canvas. É só a minha prévia: ali quem
+ * manda a tela é o envio nativo (`support.ts`).
+ */
+function canvasOutput(): VideoOutput {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false })!;
+  const track = canvas.captureStream().getVideoTracks()[0];
+  return {
+    track,
+    write: async (frame) => {
+      try {
+        if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+          canvas.width = frame.displayWidth;
+          canvas.height = frame.displayHeight;
+        }
+        ctx.drawImage(frame, 0, 0);
+      } finally {
+        frame.close();
+      }
+    },
+    close: () => {},
+  };
+}
 
 export const listSources = () => invoke<Source[]>("list_sources");
 export const getThumbnail = (id: string) => invoke<string | null>("thumbnail", { id });
+/**
+ * O sistema deixa o app capturar a tela? (No Windows, sempre.) Com `ask`, pede
+ * a permissão: o macOS pergunta na primeira vez e, depois, abre os Ajustes.
+ */
+export const capturePermission = (ask = false) => invoke<boolean>("capture_permission", { ask });
 
 export async function startNativeCapture(
   sourceId: string,
@@ -43,16 +94,11 @@ export async function startNativeCapture(
   const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu, nativeSend });
   const token = url.split("/").pop()!;
 
-  const video = new MediaStreamTrackGenerator({ kind: "video" });
-  video.contentHint = "motion";
-  const writer = video.writable.getWriter();
-  const tracks: MediaStreamTrack[] = [video];
+  const video = canSendFromWebView() ? generatorOutput() : canvasOutput();
+  const tracks: MediaStreamTrack[] = [video.track];
 
   let audioCtx: AudioContext | null = null;
   let player: AudioWorkletNode | null = null;
-  if (typeof MediaStreamTrackGenerator === "undefined") {
-    log.error("capture", "This WebView2 has no MediaStreamTrackGenerator, video can't be sent");
-  }
   if (audio) {
     audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     await audioCtx.audioWorklet.addModule("/audio-worklet.js");
@@ -102,7 +148,7 @@ export async function startNativeCapture(
         log.info("capture", `First video frame reached the app (${frame.codedWidth}x${frame.codedHeight})`);
       }
       pending++;
-      writer
+      video
         .write(frame)
         .catch((e) => {
           frame.close();
@@ -124,7 +170,7 @@ export async function startNativeCapture(
     if (stopped) return;
     stopped = true;
     ws.close();
-    writer.close().catch(() => {});
+    video.close();
     tracks.forEach((t) => t.stop());
     audioCtx?.close();
     invoke("stop_capture", { token });

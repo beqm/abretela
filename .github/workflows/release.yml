@@ -1,5 +1,6 @@
-# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador, assina a
-# atualização e publica a Release com o latest.json usado pelo auto updater.
+# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador de cada sistema
+# (Windows e macOS), assina a atualização e publica a Release com o
+# latest.json usado pelo auto updater.
 name: Release
 
 on:
@@ -11,7 +12,13 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      # um sistema por vez: os dois escrevem na mesma Release e no mesmo latest.json
+      max-parallel: 1
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
@@ -45,7 +52,8 @@ jobs:
             echo "$notes"
             echo
             echo "---"
-            echo "Baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Windows: baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Mac (Apple Silicon): baixe o **AbreTela_${version}_aarch64.dmg** e veja no README como abrir pela primeira vez."
             echo "Quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app."
             echo "END_OF_NOTES"
           } >> "$GITHUB_OUTPUT"

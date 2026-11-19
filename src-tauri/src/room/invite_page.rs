@@ -29,6 +29,8 @@ struct Texts {
     open: &'static str,
     no_app: &'static str,
     download: &'static str,
+    /// O mesmo botão para quem abre o link num Mac.
+    download_mac: &'static str,
     person: &'static str,
     people: &'static str,
     live: &'static str,
@@ -43,6 +45,7 @@ fn texts(lang: &str) -> Texts {
             open: "Abrir no AbreTela",
             no_app: "Ainda não tem o AbreTela?",
             download: "Baixar para Windows",
+            download_mac: "Baixar para Mac",
             person: "1 pessoa na sala",
             people: "{n} pessoas na sala",
             live: "{n} ao vivo",
@@ -54,6 +57,7 @@ fn texts(lang: &str) -> Texts {
             open: "Abrir en AbreTela",
             no_app: "¿Todavía no tienes AbreTela?",
             download: "Descargar para Windows",
+            download_mac: "Descargar para Mac",
             person: "1 persona en la sala",
             people: "{n} personas en la sala",
             live: "{n} en vivo",
@@ -65,6 +69,7 @@ fn texts(lang: &str) -> Texts {
             open: "AbreTela で開く",
             no_app: "AbreTela をまだ持っていませんか？",
             download: "Windows 版をダウンロード",
+            download_mac: "Mac 版をダウンロード",
             person: "ルームに 1 人",
             people: "ルームに {n} 人",
             live: "{n} 人が配信中",
@@ -76,6 +81,7 @@ fn texts(lang: &str) -> Texts {
             open: "AbreTela에서 열기",
             no_app: "아직 AbreTela가 없나요?",
             download: "Windows용 다운로드",
+            download_mac: "Mac용 다운로드",
             person: "방에 1명",
             people: "방에 {n}명",
             live: "{n}명 방송 중",
@@ -87,6 +93,7 @@ fn texts(lang: &str) -> Texts {
             open: "在 AbreTela 中打开",
             no_app: "还没有 AbreTela？",
             download: "下载 Windows 版",
+            download_mac: "下载 Mac 版",
             person: "房间里有 1 人",
             people: "房间里有 {n} 人",
             live: "{n} 人正在直播",
@@ -98,6 +105,7 @@ fn texts(lang: &str) -> Texts {
             open: "Open in AbreTela",
             no_app: "Don't have AbreTela yet?",
             download: "Download for Windows",
+            download_mac: "Download for Mac",
             person: "1 person in the room",
             people: "{n} people in the room",
             live: "{n} live",
@@ -184,7 +192,7 @@ impl InvitePage {
     <p>{no_app}</p>
     <a class="btn download" href="{DOWNLOAD_URL}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-      {download}
+      <span id="download" data-mac="{download_mac}">{download}</span>
     </a>
   </div>
 </main>
@@ -193,6 +201,9 @@ impl InvitePage {
   var path = location.pathname.replace(/\/+$/, "");
   var target = "abretela://join/" + location.host + path + location.hash;
   document.getElementById("open").href = target;
+  // o botão de download fala do sistema de quem abriu o link
+  var download = document.getElementById("download");
+  if (/Macintosh/.test(navigator.userAgent)) download.textContent = download.dataset.mac;
   location.href = target;
 </script>
 </body>
@@ -202,6 +213,7 @@ impl InvitePage {
             open = escape(t.open),
             no_app = escape(t.no_app),
             download = escape(t.download),
+            download_mac = escape(t.download_mac),
         )
     }
 }
@@ -221,5 +233,15 @@ mod tests {
         assert!(html.contains("Sala de &lt;b&gt;Ana&lt;/b&gt; no AbreTela"));
         assert!(html.contains("https://abc.example.com/logo.png"));
         assert!(!html.contains("<b>Ana</b>"));
+    }
+
+    /// O botão nasce com o texto do Windows e leva o do Mac, que a página
+    /// troca se quem abriu o link estiver num Mac.
+    #[test]
+    fn offers_the_download_for_windows_and_for_mac() {
+        for (lang, windows, mac) in [("pt", "Baixar para Windows", "Baixar para Mac"), ("xx", "Download for Windows", "Download for Mac")] {
+            let html = InvitePage { host_name: "Ana".into(), lang: lang.into() }.render(None, RoomStats::default());
+            assert!(html.contains(&format!(r#"<span id="download" data-mac="{mac}">{windows}</span>"#)), "{lang}");
+        }
     }
 }

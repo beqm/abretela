@@ -1,6 +1,6 @@
 # Em todo push e pull request: tipos (tsc + svelte-check), testes do
-# frontend (Vitest) e do Rust (cargo test). Roda no Windows porque a captura
-# usa APIs do Windows.
+# frontend (Vitest) e do Rust (cargo test). Roda no Windows e no macOS porque
+# a captura e o codificador usam as APIs de cada sistema.
 name: CI
 
 on:
@@ -14,7 +14,11 @@ concurrency:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
