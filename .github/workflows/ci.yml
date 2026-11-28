@@ -1,12 +1,15 @@
-# Em todo push e pull request: tipos (tsc + svelte-check), testes do
-# frontend (Vitest) e do Rust (cargo test). Roda no Windows, no macOS e no
-# Linux porque a captura e o codificador usam as APIs de cada sistema.
+# Nos pushes na main e nos pull requests para a main: tipos (tsc +
+# svelte-check), testes do frontend (Vitest) e do Rust (cargo test). Roda no
+# Windows, no macOS e no Linux porque a captura e o codificador usam as APIs de
+# cada sistema. Pushes em outros branches (dev, feat/...) não rodam: o PR para
+# a main é que confere.
 name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
