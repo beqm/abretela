@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./packet-fixture.json";
 import {
+  FLAG_KEYFRAME,
   FORMAT_I420,
   FORMAT_NV12,
   HEADER,
   KIND_AUDIO,
+  KIND_ENCODED_AUDIO,
+  KIND_ENCODED_VIDEO,
   KIND_VIDEO,
   packetKind,
   payload,
+  readEncodedHeader,
   readVideoHeader,
 } from "./packet";
 
@@ -38,5 +42,22 @@ describe("pacotes da captura nativa", () => {
       // vídeo: 1,5 byte por pixel
       expect(ex.payload).toBe((ex.width! * ex.height! * 3) / 2);
     }
+  });
+});
+
+describe("pacotes de mídia recebida ainda codificada", () => {
+  it("usa as mesmas constantes do Rust", () => {
+    expect(fixture.encoded).toEqual({
+      video: KIND_ENCODED_VIDEO,
+      audio: KIND_ENCODED_AUDIO,
+      keyframe_flag: FLAG_KEYFRAME,
+    });
+  });
+
+  it.each(fixture.encoded_examples)("lê o exemplo $name", (ex) => {
+    const buf = build(ex.header_hex, ex.payload);
+    expect(packetKind(buf)).toBe(ex.kind);
+    expect(payload(buf).byteLength).toBe(ex.payload);
+    expect(readEncodedHeader(buf)).toEqual({ keyframe: ex.keyframe, timestampUs: ex.timestamp_us });
   });
 });

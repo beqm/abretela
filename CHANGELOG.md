@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.8.0] - 2026-11-28
+
+### Novidades
+- **Versão para Mac**: o AbreTela agora roda em Macs com chip da Apple (macOS 14 ou mais novo). Dá para criar salas, assistir e transmitir telas e janelas com som, junto com quem está no Windows.
+  - No Mac a tela é sempre codificada pelo próprio app (o "envio nativo" do Windows), pelo chip.
+  - Para transmitir, o macOS pede a permissão de gravação de tela; o app avisa e leva até o lugar certo dos Ajustes.
+  - O app ainda não é assinado pela Apple: veja no README como abrir pela primeira vez. Depois de uma atualização, o macOS pode pedir de novo a permissão de gravação de tela.
+- **Versão para Linux**: o AbreTela agora roda no Ubuntu 24.04 com GNOME. Dá para criar salas, assistir e transmitir com som, junto com quem está no Windows e no Mac.
+  - Quem escolhe a tela ou a janela a transmitir é o próprio sistema, numa janela dele.
+  - O som transmitido é o do sistema inteiro, com o do próprio AbreTela junto: quem transmite com som e assiste alguém ao mesmo tempo devolve a essa pessoa o som dela.
+  - A tela é codificada no processador (OpenH264). Para assistir, o sistema precisa do pacote `gstreamer1.0-libav`, que o `.deb` já pede.
+  - Vem em `.deb`, que não se atualiza sozinho: para uma versão nova, baixe e instale o `.deb` dela.
+- A página do convite mostra o botão de download do sistema de quem abriu o link.
+- **Mutar apps para quem assiste** (Windows): ao transmitir a tela inteira com som, a janela de compartilhar mostra os apps com som aberto, e cada um pode ser mutado só para quem assiste (você continua ouvindo). O app lembra das escolhas para as próximas lives. Um app que começa a tocar no meio da live entra em até 2 s.
+- **O que mudou**: depois de cada atualização, o app abre uma vez com as novidades da versão. Dá para ver de novo em Configurações > Sobre.
+- **Senha do servidor só na primeira vez**: ao entrar num servidor próprio de outra pessoa, o app pede a senha uma vez e lembra dela no cofre do sistema (Gerenciador de Credenciais do Windows, Chaves do Mac ou chaveiro do Linux). Se o dono trocar a senha, o app pede de novo; tirar o servidor da lista apaga a senha guardada.
+
+### Correções
+- **Som estourando para quem assiste** em jogos altos (freada, motor, explosão): o som de um app é capturado antes do volume e do limitador do Windows e podia passar do máximo, e quem assistia ouvia cortado. Agora o app abaixa o volume só nesses picos, igual ao sistema faz para quem transmite. Vale para o envio nativo e o pelo WebView.
+
+### Por dentro
+- O que é de cada sistema fica em pastas próprias (`capture/mac`, `capture/linux`, `encode/mac`, `encode/linux`, `logging/unix`); nada muda no Windows.
+- No Linux o WebView (WebKitGTK) não tem WebRTC: o app recebe a tela dos outros no Rust (`receive/`, o espelho do envio nativo) e o WebView só decodifica e mostra.
+- Os testes automáticos e a publicação das versões rodam no Windows, no macOS e no Ubuntu.
+
 ## [0.7.0] - 2026-11-21
 
 ### Novidades

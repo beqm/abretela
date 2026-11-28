@@ -5,6 +5,7 @@
   import type { RoomClient } from "../../lib/room";
   import type { RemoteView } from "../../lib/transport/types";
   import { startNativeCapture, type Source } from "../../lib/capture/native";
+  import { isShareCancelled } from "../../lib/capture/support";
   import { describeError, log } from "../../lib/log";
   import { videoBitrate, type Quality } from "../../lib/quality";
   import { prefs, t } from "../../lib/prefs.svelte";
@@ -243,7 +244,7 @@
     onexit();
   }
 
-  async function startShare(pick: { source: Source; quality: Quality; audio: boolean }) {
+  async function startShare(pick: { source: Source; quality: Quality; audio: boolean; muted: string[] }) {
     notice = null;
     const switching = pickMode === "switch" && snap.sharing;
     try {
@@ -255,16 +256,24 @@
         pick.audio,
         prefs.hwAccel,
         client.nativeSend ? videoBitrate(pick.quality) : undefined,
+        pick.muted,
       );
       const title =
-        pick.source.kind === "screen"
-          ? t("screenN", { n: pick.source.title })
-          : pick.source.app || pick.source.title;
+        pick.source.kind === "system"
+          ? t("screenOrWindow")
+          : pick.source.kind === "screen"
+            ? t("screenN", { n: pick.source.title })
+            : pick.source.app || pick.source.title;
       if (switching) client.switchShare(capture, pick.quality, title, prefs.hwAccel);
       else client.startShare(capture, pick.quality, title, prefs.hwAccel);
     } catch (e) {
-      log.error("sharing", `Could not ${switching ? "switch the screen" : "start sharing"}: ${describeError(e)}`);
-      notice = t("shareFailed", { e: String(e) });
+      if (isShareCancelled(e)) {
+        // a pessoa fechou a janela do sistema sem escolher: não é erro
+        log.info("sharing", "Nothing was chosen in the system's dialog");
+      } else {
+        log.error("sharing", `Could not ${switching ? "switch the screen" : "start sharing"}: ${describeError(e)}`);
+        notice = t("shareFailed", { e: String(e) });
+      }
       if (switching) client.stopShare(); // a captura antiga já foi solta
     } finally {
       pickMode = null;

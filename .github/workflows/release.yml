@@ -1,19 +1,43 @@
-# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador, assina a
-# atualização e publica a Release com o latest.json usado pelo auto updater.
+# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador de cada sistema
+# (Windows, macOS e Linux), assina a atualização e publica a Release com o
+# latest.json usado pelo auto updater. Cada sistema sobe para um rascunho, e a
+# Release só é publicada quando os três terminaram: se um falhar, ninguém
+# recebe uma atualização pela metade.
+#
+# Pelo botão "Run workflow" na main (sem tag), só compila: os três
+# instaladores ficam para baixar na página da execução, sem Release. Serve para
+# conferir antes de lançar. Em outro branch, o botão não faz nada.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
-    runs-on: windows-latest
+    # tag de versão, ou o botão na main
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      # um sistema por vez: todos escrevem na mesma Release e no mesmo latest.json
+      max-parallel: 1
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      # no Linux o WebView, a bandeja, o PipeWire e o chaveiro vêm do sistema;
+      # o nasm é para o assembly do OpenH264
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev libpipewire-0.3-dev libdbus-1-dev clang nasm
 
       - uses: actions/setup-node@v5
         with:
@@ -45,12 +69,15 @@ jobs:
             echo "$notes"
             echo
             echo "---"
-            echo "Baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
-            echo "Quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app."
+            echo "Windows: baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Mac (Apple Silicon): baixe o **AbreTela_${version}_aarch64.dmg** e veja no README como abrir pela primeira vez."
+            echo "Linux (Ubuntu 24.04): baixe o **AbreTela_${version}_amd64.deb** e instale com \`sudo apt install ./AbreTela_${version}_amd64.deb\`."
+            echo "No Windows e no Mac, quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app. No Linux, instale o .deb novo."
             echo "END_OF_NOTES"
           } >> "$GITHUB_OUTPUT"
 
       - uses: tauri-apps/tauri-action@v0
+        if: github.ref_type == 'tag'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -59,5 +86,34 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: AbreTela ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
+          # publicada pelo job "publish", depois dos três sistemas
+          releaseDraft: true
           prerelease: false
+
+      # teste pelo botão: só compila e guarda os instaladores na execução
+      - uses: tauri-apps/tauri-action@v0
+        if: github.ref_type != 'tag'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type != 'tag'
+        with:
+          name: AbreTela-${{ runner.os }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+  # os três instaladores subiram: publica a Release (e o latest.json passa a
+  # valer para a atualização automática)
+  publish:
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

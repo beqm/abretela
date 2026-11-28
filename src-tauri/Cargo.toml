@@ -7,16 +7,13 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# macos-private-api: janela de abertura transparente no Mac (sem efeito no Windows)
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"
-windows-capture = "2.0.1"
-# mesma versão que o windows-capture usa, para trocar as interfaces D3D11
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Variant"] }
-wasapi = "0.26.0"
 fast_image_resize = "6.1.0"
 jpeg-encoder = "0.7.1"
 base64 = "0.23.1"
@@ -27,21 +24,60 @@ tauri-plugin-opener = "2.7.2"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-single-instance = { version = "2.5.4", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
-# WebRTC do envio nativo (ROADMAP, seção 2); criptografia do próprio Windows
-str0m = { version = "0.25.0", default-features = false, features = ["wincrypto"] }
 opus-pure = "0.2.3"
 # pedir a credencial temporária do TURN da Cloudflare (ROADMAP, seção 4.4); as
 # mesmas versões e o mesmo TLS (rustls + ring) que o atualizador já usa
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # servidor próprio (ROADMAP, seção 6): o token da Cloudflare e a chave de
-# administrador no Gerenciador de Credenciais do Windows (no Mac, nas Chaves);
+# administrador no Gerenciador de Credenciais do Windows (no Mac, nas Chaves;
+# no Linux, no chaveiro do sistema pelo Secret Service);
 # hash e números aleatórios pelo mesmo ring que o rustls já usa
-keyring = { version = "3.6.3", features = ["windows-native", "apple-native"] }
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
 ring = "0.17.14"
 
 [target.'cfg(windows)'.dependencies]
+windows-capture = "2.0.1"
+# mesma versão que o windows-capture usa, para trocar as interfaces D3D11
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Variant"] }
+wasapi = "0.26.0"
+# WebRTC do envio nativo (ROADMAP, seção 2); criptografia do próprio Windows
+str0m = { version = "0.25.0", default-features = false, features = ["wincrypto"] }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Graphics_Dwm", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Performance"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# WebRTC do envio nativo; criptografia do próprio macOS
+str0m = { version = "0.25.0", default-features = false, features = ["apple-crypto"] }
+objc2-video-toolbox = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-core-foundation = "0.3"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-core-graphics = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# WebRTC do envio nativo; criptografia em Rust puro (sem OpenSSL)
+str0m = { version = "0.25.0", default-features = false, features = ["rust-crypto"] }
+# codificador H.264 no processador (encode/linux), compilado junto com o app
+openh264 = "0.9.10"
+# as opções de bitrate do OpenH264 que a openh264 não expõe
+openh264-sys2 = "0.9.10"
+# a janela do sistema que escolhe a tela ou a janela (xdg-desktop-portal)
+ashpd = { version = "0.14.3", default-features = false, features = ["tokio", "screencast"] }
+# os frames da tela escolhida (capture/linux)
+pipewire = "0.10.1"
+
+[target.'cfg(unix)'.dependencies]
+# hora, placas de rede e uso do processador nos logs (logging/unix)
+libc = "0.2"
+
+# o OpenH264 sem otimização não codifica em tempo real, nem para testar
+[profile.dev.package.openh264-sys2]
+opt-level = 3
 
 [profile.release]
 strip = true

@@ -1,12 +1,15 @@
-# Em todo push e pull request: tipos (tsc + svelte-check), testes do
-# frontend (Vitest) e do Rust (cargo test). Roda no Windows porque a captura
-# usa APIs do Windows.
+# Nos pushes na main e nos pull requests para a main: tipos (tsc +
+# svelte-check), testes do frontend (Vitest) e do Rust (cargo test). Roda no
+# Windows, no macOS e no Linux porque a captura e o codificador usam as APIs de
+# cada sistema. Pushes em outros branches (dev, feat/...) não rodam: o PR para
+# a main é que confere.
 name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,9 +17,20 @@ concurrency:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      # no Linux o WebView, a bandeja, o PipeWire e o chaveiro vêm do sistema
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev libpipewire-0.3-dev libdbus-1-dev clang nasm
 
       - uses: actions/setup-node@v5
         with:

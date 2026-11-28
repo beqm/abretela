@@ -7,7 +7,9 @@
   import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../lib/signaling";
   import { serverInfo } from "../lib/selfhost";
   import { prefs, t, type MessageKey } from "../lib/prefs.svelte";
-  import { appLink, DOWNLOAD_URL, roomFromPage } from "./page";
+  import { isLinux, isMac } from "../lib/platform";
+  import { appLink, DOWNLOAD_URL, isMobile, rememberedApp, roomFromPage, tryOpenApp } from "./page";
+  import logoSvg from "../../public/logo.svg?raw";
   import Tile from "../features/room/Tile.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import Icon from "../ui/Icon.svelte";
@@ -22,6 +24,24 @@
   let error = $state<string | null>(null);
   let client = $state<RoomClient | null>(null);
   let tick = $state(0);
+
+  const logo = `data:image/svg+xml,${encodeURIComponent(logoSvg)}`;
+  /** No computador o app existe: abrir nele é o caminho principal. */
+  const desktop = !isMobile(navigator.userAgent);
+  // o botão de download fala do sistema de quem abriu a página
+  const downloadLabel: MessageKey = isMac() ? "webDownloadMac" : isLinux() ? "webDownloadLinux" : "webDownloadWin";
+  /** Abrir no app: tentando, abriu, ou demorou (talvez não tenha o app). */
+  let app = $state<"idle" | "trying" | "opened" | "slow">("idle");
+  let stopTrying: (() => void) | null = null;
+
+  function openApp() {
+    stopTrying?.();
+    app = "trying";
+    stopTrying = tryOpenApp(appLink(page), {
+      opened: () => (app = "opened"),
+      slow: () => (app = "slow"),
+    });
+  }
 
   const REFUSED: Record<RefusedReason, MessageKey> = {
     banned: "refusedBanned",
@@ -124,6 +144,8 @@
   }
 
   onMount(() => {
+    // este navegador já abriu o app antes: tenta de novo sozinho
+    if (desktop && rememberedApp()) openApp();
     // servidor próprio: nome da sala e quem está lá antes de entrar (o túnel não tem isso)
     serverInfo(page.room).then((info) => {
       if (!info) return;
@@ -135,7 +157,10 @@
       client?.setPip(null);
     };
     pipVideo?.addEventListener("leavepictureinpicture", onLeavePip);
-    return () => pipVideo?.removeEventListener("leavepictureinpicture", onLeavePip);
+    return () => {
+      stopTrying?.();
+      pipVideo?.removeEventListener("leavepictureinpicture", onLeavePip);
+    };
   });
 </script>
 
@@ -143,35 +168,70 @@
 
 {#if !client || !snap}
   <main class="intro">
-    <form class="card intro-card" onsubmit={join}>
-      <div class="brand"><Icon name="tv" size={18} /> AbreTela</div>
+    <div class="card intro-card">
+      <div class="brand"><img src={logo} alt="" /> AbreTela</div>
       <h1>{roomName}</h1>
       {#if counts}
-        <p class="muted">{t("selfhostPeople", { people: counts.people, live: counts.live })}</p>
+        <span class="presence" class:live={counts.live > 0}>
+          <i></i>{t("selfhostPeople", { people: counts.people, live: counts.live })}
+        </span>
       {/if}
-      <label class="field">
-        <span>{t("webYourName")}</span>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input bind:value={name} maxlength="32" autocomplete="nickname" autofocus disabled={busy} />
-      </label>
-      {#if !page.password}
-        <label class="field">
-          <span>{t("password")}</span>
-          <input type="password" bind:value={password} maxlength="64" autocomplete="off" disabled={busy} />
-        </label>
+
+      {#if app === "opened"}
+        <div class="opened">
+          <Icon name="check" size={22} />
+          <strong>{t("webOpened")}</strong>
+          <span class="muted">{t("webOpenedHint")}</span>
+          <button class="link-btn" onclick={() => (app = "idle")}>{t("webWatchAnyway")}</button>
+        </div>
+      {:else}
+        {#if desktop}
+          <button class="btn primary big" onclick={openApp}>
+            {#if app === "trying"}<span class="spinner small"></span>{:else}<Icon name="tv" size={18} />{/if}
+            {t("webOpenAppTitle")}
+          </button>
+          {#if app === "slow"}
+            <p class="hint warn">
+              {t("webNotOpened")}
+              <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t(downloadLabel)}</a>
+            </p>
+          {:else}
+            <p class="hint center">{t("webOpenAppHint")}</p>
+          {/if}
+          <div class="divider"><span>{t("webOrBrowser")}</span></div>
+        {/if}
+
+        <form class="form" onsubmit={join}>
+          <label class="field">
+            <span>{t("webYourName")}</span>
+            <input bind:value={name} maxlength="32" autocomplete="nickname" disabled={busy} />
+          </label>
+          {#if !page.password}
+            <label class="field">
+              <span>{t("password")}</span>
+              <input type="password" bind:value={password} maxlength="64" autocomplete="off" disabled={busy} />
+            </label>
+          {/if}
+          <button
+            class="btn big"
+            class:primary={!desktop}
+            disabled={busy || !name.trim() || !password.trim()}
+          >
+            {#if busy}<span class="spinner small"></span>{:else}<Icon name="play" size={16} />{/if}
+            {busy ? t("connecting") : t("webWatchHere")}
+          </button>
+          {#if error}<p class="error">{error}</p>{/if}
+        </form>
       {/if}
-      <button class="btn primary big" disabled={busy || !name.trim() || !password.trim()}>
-        {#if busy}<span class="spinner small"></span>{/if}
-        {busy ? t("connecting") : t("webWatch")}
-      </button>
-      {#if error}<p class="error">{error}</p>{/if}
-      <p class="hint">{t("webOnlyWatch")}</p>
-      <div class="links">
-        <a href={appLink(page)}>{t("webOpenApp")}</a>
-        <span>·</span>
-        <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t("webGetApp")}</a>
-      </div>
-    </form>
+
+      <p class="foot">
+        {#if desktop}
+          {t("webNoApp")} <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t(downloadLabel)}</a>
+        {:else}
+          {t("webMobileHint")}
+        {/if}
+      </p>
+    </div>
   </main>
 {:else}
   <div class="watch">
@@ -281,37 +341,111 @@
     width: min(400px, 100%);
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 14px;
+    padding: 28px 24px 20px;
   }
   .brand {
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 8px;
     color: var(--primary);
     font-weight: 900;
+    font-size: 15px;
+  }
+  .brand img {
+    width: 34px;
+    height: 34px;
   }
   h1 {
-    font-size: 24px;
+    font-size: 26px;
     font-weight: 900;
     margin: 0;
+    text-align: center;
     overflow-wrap: anywhere;
+  }
+  .presence {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--mint-soft);
+    color: var(--mint-text);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .presence i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .presence.live {
+    background: var(--live-soft);
+    color: var(--live);
   }
   .intro-card p {
     margin: 0;
   }
-  .error {
-    color: var(--danger);
+  .hint.center {
+    text-align: center;
   }
-  .links {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    font-size: 13px;
-    color: var(--muted);
+  .hint.warn {
+    color: var(--warn-text);
+    text-align: center;
   }
-  .links a {
+  .hint a,
+  .foot a {
     color: var(--primary-text);
     font-weight: 700;
+  }
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .divider::before,
+  .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .opened {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 18px 12px;
+    border-radius: var(--r);
+    background: var(--mint-soft);
+    color: var(--mint-text);
+    text-align: center;
+  }
+  .opened .muted {
+    color: var(--text);
+    opacity: 0.75;
+  }
+  .error {
+    color: var(--danger);
+    text-align: center;
+  }
+  .foot {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
   }
 
   /* ---------- sala ---------- */

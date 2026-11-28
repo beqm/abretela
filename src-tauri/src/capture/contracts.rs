@@ -21,7 +21,8 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 #[derive(Serialize)]
 pub struct Source {
     pub id: String,
-    /// "screen" ou "window".
+    /// "screen" ou "window"; "system" quando é o próprio sistema que pergunta
+    /// a tela ou a janela ao começar (Linux), e então a lista só tem esta.
     pub kind: &'static str,
     pub title: String,
     pub app: String,
@@ -36,6 +37,8 @@ pub struct SourceInfo {
 }
 
 /// De que processo capturar o som.
+// no Linux o som é o do sistema inteiro, e ninguém lê os campos
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 #[derive(Clone, Copy)]
 pub struct AudioTarget {
     pub pid: u32,
@@ -50,6 +53,8 @@ pub struct VideoConfig {
     pub max_height: u32,
     pub fps: u32,
     /// Converter na placa de vídeo (aceleração de hardware ligada).
+    // no Linux a conversão é sempre no processador
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub gpu: bool,
 }
 
@@ -80,9 +85,41 @@ pub trait AudioSource: Sync {
     /// Captura o som de `target` e manda para `sink` até `stop` ou até o
     /// destino fechar. Bloqueia: roda numa thread própria.
     fn run(&self, target: AudioTarget, sink: Arc<dyn FrameSink>, stop: Arc<AtomicBool>) -> Result<(), BoxError>;
+
+    /// Os apps com som aberto agora, que dá para mutar para quem assiste na
+    /// tela inteira. Vazio quando o sistema não sabe separar o som por app.
+    fn apps(&self) -> Vec<AudioApp> {
+        Vec::new()
+    }
+
+    /// Como `run`, na tela inteira, mas sem o som dos apps de `muted` (os
+    /// `AudioApp::id`). Onde o sistema não sabe separar, é igual a `run`.
+    fn run_muting(
+        &self,
+        target: AudioTarget,
+        muted: &[String],
+        sink: Arc<dyn FrameSink>,
+        stop: Arc<AtomicBool>,
+    ) -> Result<(), BoxError> {
+        let _ = muted;
+        self.run(target, sink, stop)
+    }
+}
+
+/// Um app com som aberto, para a lista de mutar.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct AudioApp {
+    /// O que identifica o app entre uma live e outra (o nome do executável,
+    /// em minúsculas e sem `.exe`): é o que fica salvo como mutado.
+    pub id: String,
+    /// O nome para mostrar.
+    pub name: String,
 }
 
 /// Converte frames do tipo `F` (o frame da fonte de vídeo) em pacotes.
+// no macOS o próprio sistema converte e no Linux há um caminho só: ninguém
+// implementa este contrato
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
 pub trait FrameConverter<F> {
     /// Converte e reduz o frame para caber em `max_w` x `max_h`.
     fn convert(&mut self, frame: &mut F, max_w: u32, max_h: u32) -> Result<VideoPacket, BoxError>;

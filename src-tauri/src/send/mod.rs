@@ -482,7 +482,7 @@ impl Sender {
                             );
                             if software_only && !config.gpu {
                                 log_info!("sharing", "Hardware acceleration is off, so native sending encodes on the processor");
-                            } else if !e.hardware() && !software_only {
+                            } else if !e.hardware() && !software_only && encode::HAS_HARDWARE {
                                 log_warn!("sharing", "No graphics card encoder worked here, encoding on the processor");
                             }
                             layer.encoder = Some(e);
@@ -722,21 +722,24 @@ impl Tee {
         let preview_every = Duration::from_micros(1_000_000 / preview_fps.max(1) as u64);
         Self { preview, native, preview_every, last_preview: Mutex::new(None) }
     }
+
+    /// A prévia mostra o frame que chegou em `now`? (Se sim, já conta como
+    /// mostrado.) Uma pequena folga para o ritmo da captura não pular um a
+    /// cada dois.
+    fn preview_due(&self, now: Instant) -> bool {
+        let mut last = self.last_preview.lock().unwrap();
+        let due = last.is_none_or(|t| now.saturating_duration_since(t) + self.preview_every / 8 >= self.preview_every);
+        if due {
+            *last = Some(now);
+        }
+        due
+    }
 }
 
 impl FrameSink for Tee {
     fn video(&self, packet: VideoPacket) {
-        // a prévia só recebe (e só copia) os frames que vai mostrar; uma
-        // pequena folga para o ritmo da captura não pular um a cada dois
-        let due = {
-            let mut last = self.last_preview.lock().unwrap();
-            let due = last.is_none_or(|t| t.elapsed() + self.preview_every / 8 >= self.preview_every);
-            if due {
-                *last = Some(Instant::now());
-            }
-            due
-        };
-        if due {
+        // a prévia só recebe (e só copia) os frames que vai mostrar
+        if self.preview_due(Instant::now()) {
             self.preview.video(packet.clone());
         }
         self.native.video(packet);
@@ -773,19 +776,29 @@ mod tee_tests {
         }
     }
 
+    /// 1 s de captura a 60 fps, com o relógio simulado: o teste não depende
+    /// de o computador dormir no tempo certo (num CI lento os frames chegavam
+    /// aos montes e a prévia mostrava menos).
+    #[test]
+    fn preview_shows_about_its_own_fps() {
+        let tee = Tee::new(Arc::new(Count::default()), Arc::new(Count::default()), PREVIEW_FPS);
+        let start = Instant::now();
+        let shown = (0..60u32).filter(|&n| tee.preview_due(start + Duration::from_secs(1) * n / 60)).count();
+        assert!((13..=17).contains(&shown), "preview got {shown} frames in 1 s");
+    }
+
     #[test]
     fn preview_gets_fewer_frames_native_gets_all() {
         let (preview, native) = (Arc::new(Count::default()), Arc::new(Count::default()));
         let tee = Tee::new(preview.clone(), native.clone(), PREVIEW_FPS);
-        let start = Instant::now();
-        for n in 0..60u32 {
-            thread::sleep((Duration::from_secs(1) * n / 60).saturating_sub(start.elapsed()));
+        // todos de uma vez: para a prévia é como se fosse um só
+        for _ in 0..60 {
             tee.video(VideoPacket::new(PixelFormat::Nv12, 16, 16));
             tee.audio(Bytes::from_static(b"x"));
         }
         let shown = preview.0.load(Ordering::Relaxed);
         assert_eq!(native.0.load(Ordering::Relaxed), 60);
-        assert!((13..=17).contains(&shown), "preview got {shown} frames in 1 s");
+        assert!((1..60).contains(&shown), "preview got {shown} of 60 frames");
         assert_eq!((preview.1.load(Ordering::Relaxed), native.1.load(Ordering::Relaxed)), (60, 60));
     }
 }

@@ -5,9 +5,9 @@
 
 /**
  * Muda quando o código do servidor muda: o app compara com o do Worker publicado
- * e oferece "Atualizar servidor". 2: tira da sala as conexões sem ping. 3: página de assistir pelo navegador.
+ * e oferece "Atualizar servidor". 2: tira da sala as conexões sem ping. 3: página de assistir pelo navegador. 4: página nova (abrir no app primeiro).
  */
-export const SERVER_VERSION = 3;
+export const SERVER_VERSION = 4;
 
 /** Limites de qualidade da sala (mesmos nomes do app e do servidor do túnel). */
 export type RoomSettings = { minHeight: number; maxHeight: number; minFps: number; maxFps: number };

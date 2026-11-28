@@ -102,11 +102,19 @@ impl WebSocketSink {
     }
 }
 
+/// A porta do servidor local, depois de `serve` começar.
+pub fn port() -> Option<u16> {
+    PORT.get().copied()
+}
+
 /// Sobe o servidor local dos frames (uma vez, ao abrir o app).
 pub async fn serve() -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let _ = PORT.set(listener.local_addr()?.port());
-    let app = Router::new().route("/frames/{token}", get(frames_handler));
+    let app = Router::new()
+        .route("/frames/{token}", get(frames_handler))
+        // a mídia que a recepção nativa recebe de outra pessoa (`receive/bridge.rs`)
+        .route("/watch/{token}", get(crate::receive::bridge::handler));
     axum::serve(listener, app).await
 }
 

@@ -1,6 +1,7 @@
 //! Segredos do servidor próprio no Gerenciador de Credenciais do Windows (no
-//! Mac, nas Chaves): o token da Cloudflare e a chave de administrador de cada
-//! servidor. Nada disso vai para o `localStorage` do WebView.
+//! Mac, nas Chaves; no Linux, no Secret Service): o token da Cloudflare, a
+//! chave de administrador de cada servidor e a senha dos servidores de outras
+//! pessoas em que já entrei. Nada disso vai para o `localStorage` do WebView.
 
 const SERVICE: &str = "AbreTela";
 const TOKEN: &str = "cloudflare-token";
@@ -11,6 +12,12 @@ fn entry(user: &str) -> Result<keyring::Entry, String> {
 
 fn admin_user(script: &str) -> String {
     format!("server-admin:{script}")
+}
+
+/// O mesmo servidor escrito de jeitos diferentes (barra no fim, maiúsculas)
+/// guarda a senha num lugar só, como o `sameServer` do frontend.
+fn password_user(url: &str) -> String {
+    format!("server-password:{}", url.trim().trim_end_matches('/').to_lowercase())
 }
 
 fn get(user: &str) -> Result<Option<String>, String> {
@@ -56,8 +63,26 @@ pub fn forget_admin_key(script: &str) -> Result<(), String> {
     delete(&admin_user(script))
 }
 
+pub fn server_password(url: &str) -> Result<Option<String>, String> {
+    get(&password_user(url))
+}
+
+pub fn set_server_password(url: &str, password: &str) -> Result<(), String> {
+    set(&password_user(url), password)
+}
+
+pub fn forget_server_password(url: &str) -> Result<(), String> {
+    delete(&password_user(url))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn one_password_per_server_however_it_is_written() {
+        assert_eq!(super::password_user("https://A.workers.dev/"), super::password_user("https://a.workers.dev"));
+        assert_ne!(super::password_user("https://a.workers.dev"), super::password_user("https://b.workers.dev"));
+    }
+
     /// Manual (mexe no Gerenciador de Credenciais de verdade): grava, lê por
     /// outra entrada e apaga. Confere que não caiu no armazenamento falso do
     /// keyring, que só guarda na memória.

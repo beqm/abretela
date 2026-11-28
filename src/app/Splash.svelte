@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { findUpdate, installUpdate } from "../lib/update";
+  import { autoUpdates, findUpdate, installUpdate } from "../lib/update";
   import { describeError, log } from "../lib/log";
 
   /** Baixando uma atualização: mostra a barra (fora isso, só o mascote). */
@@ -9,7 +9,8 @@
   let progress = $state<number | null>(null);
 
   onMount(async () => {
-    if (!import.meta.env.DEV) {
+    // no Linux o .deb não se atualiza sozinho: a versão nova aparece nas configurações
+    if (!import.meta.env.DEV && autoUpdates()) {
       try {
         const update = await findUpdate();
         if (update) {

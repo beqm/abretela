@@ -1,13 +1,19 @@
 //! Captura nativa de telas, janelas e som. Junta as peças de `contracts.rs`:
-//! a fonte de vídeo e de áudio do sistema (hoje `win/`), a conversão e o
+//! a fonte de vídeo e de áudio do sistema (`win/`, `mac/` ou `linux/`), a conversão e o
 //! destino dos pacotes (hoje o WebSocket local de `sink.rs`, que o app
 //! transforma em faixas para o WebRTC).
 
 pub mod commands;
 pub mod contracts;
 mod convert;
+mod limiter;
 pub mod packet;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "macos")]
+mod mac;
 mod sink;
+#[cfg(windows)]
 mod win;
 
 use contracts::{AudioSource, FrameSink, VideoConfig, VideoSource};
@@ -23,12 +29,27 @@ use std::{
 };
 
 /// Peças específicas do sistema (prioridade de thread etc.).
+#[cfg(target_os = "linux")]
+use linux as platform;
+#[cfg(target_os = "macos")]
+use mac as platform;
+#[cfg(windows)]
 use win as platform;
 
+#[cfg(windows)]
 static VIDEO: win::WgcSource = win::WgcSource;
+#[cfg(windows)]
 static AUDIO: win::WasapiLoopback = win::WasapiLoopback;
+#[cfg(target_os = "macos")]
+static VIDEO: mac::SckSource = mac::SckSource;
+#[cfg(target_os = "macos")]
+static AUDIO: mac::SckAudio = mac::SckAudio;
+#[cfg(target_os = "linux")]
+static VIDEO: linux::PortalSource = linux::PortalSource;
+#[cfg(target_os = "linux")]
+static AUDIO: linux::PipewireAudio = linux::PipewireAudio;
 
-pub use sink::serve;
+pub use sink::{port as frames_port, serve};
 
 struct Session {
     token: String,
@@ -38,11 +59,23 @@ struct Session {
 
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     use std::hash::{BuildHasher, RandomState};
     let a = RandomState::new().hash_one(Instant::now());
     let b = RandomState::new().hash_one(std::process::id());
     format!("{a:016x}{b:016x}")
+}
+
+/// O sistema deixa este app capturar a tela? Só o macOS exige que a pessoa
+/// permita; com `ask`, pede a permissão a ela.
+pub fn permission(ask: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    return mac::permission(ask);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ask;
+        true
+    }
 }
 
 pub fn list_sources() -> Vec<Source> {
@@ -60,7 +93,22 @@ pub fn stop() {
 /// Começa a capturar `id`; devolve a URL do WebSocket local com os frames.
 /// Com `native_send` (bitrate máximo), os frames também vão para o envio
 /// nativo (`send/`), que codifica e manda direto aos espectadores.
-pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_send: Option<u32>) -> Result<String, String> {
+/// Os apps com som aberto agora, para a lista de mutar (vazia onde o sistema
+/// não sabe separar o som por app).
+pub fn audio_apps() -> Vec<contracts::AudioApp> {
+    AUDIO.apps()
+}
+
+/// `muted`: apps (`AudioApp::id`) que quem assiste não ouve, na tela inteira.
+pub fn start(
+    id: &str,
+    height: u32,
+    fps: u32,
+    audio: bool,
+    gpu: bool,
+    native_send: Option<u32>,
+    muted: Vec<String>,
+) -> Result<String, String> {
     stop();
     let token = random_token();
     let stop = Arc::new(AtomicBool::new(false));
@@ -97,7 +145,16 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
     let video = match VIDEO.start(id, config, sink.clone(), stop.clone()) {
         Ok(video) => video,
         Err(e) => {
-            log_error!("capture", "Windows refused to start the capture: {e}");
+            // no Linux, fechar a janela do sistema sem escolher não é erro
+            #[cfg(target_os = "linux")]
+            let gave_up = e == linux::CANCELLED;
+            #[cfg(not(target_os = "linux"))]
+            let gave_up = false;
+            if gave_up {
+                log_info!("capture", "Nothing was chosen in the system's dialog, so no capture started");
+            } else {
+                log_error!("capture", "The system refused to start the capture: {e}");
+            }
             stop.store(true, Ordering::Relaxed);
             WebSocketSink::discard(&token);
             return Err(e);
@@ -106,8 +163,10 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
 
     if let (true, Some(target)) = (audio, info.audio) {
         let stop = stop.clone();
+        // o som do app vem antes do limitador do sistema e pode passar de 1,0
+        let sink: Arc<dyn FrameSink> = Arc::new(limiter::Limited::new(sink));
         thread::spawn(move || {
-            if let Err(e) = AUDIO.run(target, sink, stop) {
+            if let Err(e) = AUDIO.run_muting(target, &muted, sink, stop) {
                 log_error!("audio", "Audio capture failed: {e}");
             }
         });
@@ -125,7 +184,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
 /// frames direto para `sink` (sem o WebSocket).
 #[cfg(test)]
 pub fn start_video_for_test(sink: Arc<dyn FrameSink>, height: u32, fps: u32) -> (Arc<AtomicBool>, contracts::RunningVideo) {
-    let screen = list_sources().into_iter().find(|s| s.kind == "screen").expect("a screen").id;
+    let screen = list_sources().into_iter().find(|s| matches!(s.kind, "screen" | "system")).expect("a screen").id;
     let stop = Arc::new(AtomicBool::new(false));
     let video = VIDEO.start(&screen, VideoConfig { max_height: height, fps, gpu: true }, sink, stop.clone()).unwrap();
     (stop, video)
@@ -181,7 +240,7 @@ mod tests {
         println!("thumbnail: {:?} bytes em {:?}", thumb.map(|t| t.len()), t.elapsed());
 
         let gpu = std::env::var("CAPTURE_GPU").map_or(true, |v| v != "0");
-        let url = start(&screen, height, fps, true, gpu, None).unwrap();
+        let url = start(&screen, height, fps, true, gpu, None, Vec::new()).unwrap();
         println!("url: {url}");
         let token = url.rsplit('/').next().unwrap();
         let (mut video, mut audio) = sink::take_waiting(token).unwrap();

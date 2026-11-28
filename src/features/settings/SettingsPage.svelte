@@ -2,8 +2,13 @@
   import { onMount } from "svelte";
   import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
   import { getVersion } from "@tauri-apps/api/app";
-  import { findUpdate, installUpdate, type Update } from "../../lib/update";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { autoUpdates, findUpdate, installUpdate, isNewer, latestVersion, RELEASES_URL, type Update } from "../../lib/update";
+  import { notesFor, type ReleaseNotes } from "../../lib/changelog";
+  import WhatsNew from "../../ui/WhatsNew.svelte";
   import { LANGUAGES, prefs, t, type Theme } from "../../lib/prefs.svelte";
+  import { canSendFromWebView } from "../../lib/capture/support";
+  import { isLinux, isMac } from "../../lib/platform";
   import Icon, { type IconName } from "../../ui/Icon.svelte";
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
@@ -51,13 +56,23 @@
     | { kind: "latest" }
     | { kind: "available"; update: Update }
     | { kind: "installing"; phase: "download" | "install"; progress: number | null }
-    | { kind: "error"; message: string };
+    | { kind: "error"; message: string }
+    /** No Linux: há uma versão nova, mas a pessoa baixa e instala o .deb. */
+    | { kind: "download"; version: string };
   let version = $state("");
+  /** As notas desta versão, abertas pelo botão "O que mudou". */
+  let showNotes = $state<ReleaseNotes | null>(null);
+  const notes = $derived(version ? notesFor(version) : null);
   let upd = $state<UpdateState>({ kind: "idle" });
 
   async function checkUpdates() {
     upd = { kind: "checking" };
     try {
+      if (!autoUpdates()) {
+        const latest = await latestVersion();
+        upd = isNewer(latest, version) ? { kind: "download", version: latest } : { kind: "latest" };
+        return;
+      }
       const update = await findUpdate(15000);
       upd = update ? { kind: "available", update } : { kind: "latest" };
     } catch (e) {
@@ -108,6 +123,9 @@
       unitDisplay: "short",
     }).format(hours ? minutes / 60 : minutes);
   }
+  // no macOS a "bandeja" é a barra de menus
+  const mac = isMac();
+  const linux = isLinux();
 
   let autostart = $state(false);
   let autostartReady = $state(false);
@@ -200,15 +218,15 @@
           <div class="group-label"><Icon name="monitor" size={15} /> {t("behavior")}</div>
           <div class="toggles">
             <Toggle
-              label={t("startWithWindows")}
-              hint={t("startWithWindowsHint")}
+              label={t(mac ? "startWithMac" : linux ? "startWithLinux" : "startWithWindows")}
+              hint={t(mac ? "startWithMacHint" : linux ? "startWithLinuxHint" : "startWithWindowsHint")}
               checked={autostart}
               disabled={!autostartReady}
               onchange={setAutostart}
             />
             <Toggle
-              label={t("closeToTray")}
-              hint={t("closeToTrayHint")}
+              label={t(mac ? "closeToMenuBar" : "closeToTray")}
+              hint={t(mac ? "closeToMenuBarHint" : "closeToTrayHint")}
               checked={prefs.closeToTray}
               onchange={(v) => (prefs.closeToTray = v)}
             />
@@ -224,18 +242,26 @@
         <section class="settings-group">
           <div class="group-label"><Icon name="tv" size={15} /> {t("performance")}</div>
           <div class="toggles">
-            <Toggle
-              label={t("hwAccel")}
-              hint={t("hwAccelHint")}
-              checked={prefs.hwAccel}
-              onchange={(v) => (prefs.hwAccel = v)}
-            />
-            <Toggle
-              label={t("nativeSend")}
-              hint={t("nativeSendHint")}
-              checked={prefs.nativeSend}
-              onchange={(v) => (prefs.nativeSend = v)}
-            />
+            <!-- no Linux a captura e o codificador são sempre no processador: não há o que ligar -->
+            {#if !linux}
+              <Toggle
+                label={t("hwAccel")}
+                hint={t("hwAccelHint")}
+                checked={prefs.hwAccel}
+                onchange={(v) => (prefs.hwAccel = v)}
+              />
+            {/if}
+            {#if canSendFromWebView()}
+              <Toggle
+                label={t("nativeSend")}
+                hint={t("nativeSendHint")}
+                checked={prefs.nativeSend}
+                onchange={(v) => (prefs.nativeSend = v)}
+              />
+            {:else}
+              <!-- onde o WebView não consegue mandar a tela (macOS), não há o que escolher -->
+              <Toggle label={t("nativeSend")} hint={t("nativeSendAlwaysOn")} checked disabled onchange={() => {}} />
+            {/if}
           </div>
         </section>
 
@@ -381,6 +407,9 @@
             <div class="about-name">AbreTela</div>
             <div class="muted">{version ? `v${version}` : ""}</div>
           </div>
+          {#if notes}
+            <button class="btn small whats-new-btn" onclick={() => (showNotes = notes)}>{t("whatsNewButton")}</button>
+          {/if}
         </section>
 
         <section class="settings-group">
@@ -393,6 +422,9 @@
                 {t("upToDate")}
               {:else if upd.kind === "available"}
                 {t("updateAvailable", { v: upd.update.version })}
+              {:else if upd.kind === "download"}
+                {t("updateAvailable", { v: upd.version })}
+                <div class="muted small-hint">{t("updateDownloadDeb")}</div>
               {:else if upd.kind === "installing"}
                 {upd.phase === "install" ? t("installing") : t("downloadingUpdate")}
               {:else if upd.kind === "error"}
@@ -407,6 +439,8 @@
             {#if upd.kind === "available"}
               {@const update = upd.update}
               <button class="btn small primary" onclick={() => updateNow(update)}>{t("updateNow")}</button>
+            {:else if upd.kind === "download"}
+              <button class="btn small primary" onclick={() => openUrl(RELEASES_URL).catch(() => {})}>{t("updateDownload")}</button>
             {:else}
               <button
                 class="btn small"
@@ -426,7 +460,19 @@
   </main>
 </div>
 
+{#if showNotes}
+  <WhatsNew notes={showNotes} onclose={() => (showNotes = null)} />
+{/if}
+
 <style>
+  .small-hint {
+    font-size: 12px;
+  }
+
+  .whats-new-btn {
+    margin-left: auto;
+  }
+
   .turn-form {
     display: flex;
     flex-direction: column;

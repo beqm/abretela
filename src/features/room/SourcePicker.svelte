@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { audioApps, capturePermission, getThumbnail, listSources, type AudioApp, type Source } from "../../lib/capture/native";
+  import { systemPickedSource } from "../../lib/capture/support";
   import {
     allowedFps,
     allowedHeights,
@@ -16,7 +17,8 @@
 
   type Props = {
     settings: RoomSettings;
-    onpick: (pick: { source: Source; quality: Quality; audio: boolean }) => void;
+    /** `muted`: apps que quem assiste não ouve (só na tela inteira). */
+    onpick: (pick: { source: Source; quality: Quality; audio: boolean; muted: string[] }) => void;
     oncancel: () => void;
     /** Trocando a tela de uma transmissão que já está no ar. */
     switching?: boolean;
@@ -24,16 +26,22 @@
   let { settings, onpick, oncancel, switching = false }: Props = $props();
 
   const PREFS_KEY = "abretela.sharePrefs";
-  const prefs = loadJson(PREFS_KEY, { height: 720, fps: 30, audio: true });
+  const prefs = loadJson(PREFS_KEY, { height: 720, fps: 30, audio: true, muted: [] as string[] });
 
   let tab = $state<"window" | "screen">("window");
   let sources = $state<Source[]>([]);
   let thumbs = $state<Record<string, string | null>>({});
   let loading = $state(true);
+  /** O sistema deixa capturar a tela (no macOS a pessoa precisa permitir). */
+  let allowed = $state(true);
   let selected = $state<string | null>(null);
   // svelte-ignore state_referenced_locally
   let quality = $state<Quality>(clampQuality(prefs, settings));
   let audio = $state(prefs.audio);
+  /** Os apps com som aberto agora (vazio onde o sistema não separa o som por app). */
+  let apps = $state<AudioApp[]>([]);
+  /** Os mutados para quem assiste, lembrados entre uma live e outra (inclusive os fechados agora). */
+  let muted = $state<string[]>(Array.isArray(prefs.muted) ? prefs.muted.filter((m) => typeof m === "string") : []);
   let starting = $state(false);
 
   const visible = $derived(sources.filter((s) => s.kind === tab));
@@ -43,13 +51,24 @@
     { value: "window" as const, label: t("apps") },
     { value: "screen" as const, label: t("screens") },
   ]);
-  const selectedSource = $derived(sources.find((s) => s.id === selected));
+  /** No Linux é o sistema que pergunta a tela ou a janela: não há o que listar. */
+  const system = $derived(systemPickedSource(sources));
+  const selectedSource = $derived(system ?? sources.find((s) => s.id === selected));
+
+  /** A lista de mutar: só na tela inteira com o som ligado (numa janela o som já é só o dela). */
+  const showMute = $derived(tab === "screen" && !system && audio && apps.length > 0);
+
+  function toggleMute(id: string) {
+    muted = muted.includes(id) ? muted.filter((m) => m !== id) : [...muted, id];
+  }
 
   const titleOf = (s: Source) => (s.kind === "screen" ? t("screenN", { n: s.title }) : s.title);
 
   async function refresh() {
     loading = true;
-    sources = await listSources();
+    [sources, apps] = await Promise.all([listSources(), audioApps().catch(() => [])]);
+    // sem nenhuma fonte, pode ser a permissão do sistema que falta
+    allowed = sources.length > 0 || (await capturePermission().catch(() => true));
     thumbs = {};
     loading = false;
     if (selected && !sources.some((s) => s.id === selected)) selected = null;
@@ -73,8 +92,9 @@
   function go() {
     if (!selectedSource || starting) return;
     starting = true;
-    saveJson(PREFS_KEY, { ...quality, audio });
-    onpick({ source: selectedSource, quality: { ...quality }, audio });
+    saveJson(PREFS_KEY, { ...quality, audio, muted });
+    const muting = audio && selectedSource.kind === "screen" ? muted : [];
+    onpick({ source: selectedSource, quality: { ...quality }, audio, muted: muting });
   }
 </script>
 
@@ -83,15 +103,29 @@
   <div class="modal picker">
     <header class="modal-head">
       <h2>{switching ? t("switchScreenTitle") : t("shareTitle")}</h2>
-      <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {#if !system}
+        <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {/if}
       <div class="spacer"></div>
-      <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {#if !system}
+        <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {/if}
       <button class="icon-btn" title={t("close")} onclick={oncancel}><Icon name="x" /></button>
     </header>
 
     <div class="sources">
       {#if loading}
         <div class="picker-empty"><span class="spinner"></span> {t("searching")}</div>
+      {:else if system}
+        <div class="picker-empty system">
+          <span class="muted"><Icon name="monitor" size={40} /></span>
+          <span class="muted">{t("systemPicks", { button: switching ? t("switchTo") : t("startStreaming") })}</span>
+        </div>
+      {:else if !allowed}
+        <div class="picker-empty permission">
+          <span class="muted">{t("screenPermission")}</span>
+          <button class="btn primary" onclick={() => capturePermission(true).then(refresh)}>{t("screenPermissionAllow")}</button>
+        </div>
       {:else if visible.length === 0}
         <div class="picker-empty muted">{t("nothingFound")}</div>
       {:else}
@@ -121,6 +155,25 @@
       {/if}
     </div>
 
+    {#if showMute}
+      <div class="mute-row">
+        <span class="opt-label" title={t("muteForViewersHint")}>{t("muteForViewers")}</span>
+        {#each apps as app (app.id)}
+          {@const off = muted.includes(app.id)}
+          <button
+            class="mute-chip"
+            class:off
+            aria-pressed={off}
+            title={off ? t("unmuteApp", { app: app.name }) : t("muteApp", { app: app.name })}
+            onclick={() => toggleMute(app.id)}
+          >
+            <Icon name={off ? "mute" : "volume"} size={14} />
+            <span>{app.name}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     <footer class="picker-foot">
       <div class="opt">
         <span class="opt-label">{t("resolution")}</span>
@@ -132,7 +185,7 @@
       </div>
       <label class="check">
         <input type="checkbox" bind:checked={audio} />
-        {tab === "window" ? t("appAudio") : t("systemAudio")}
+        {tab === "window" && !system ? t("appAudio") : t("systemAudio")}
       </label>
       <div class="spacer"></div>
       <button class="btn" onclick={oncancel}>{t("cancel")}</button>
@@ -180,6 +233,13 @@
     align-items: center;
     gap: 10px;
     padding: 40px;
+  }
+
+  .picker-empty.permission,
+  .picker-empty.system {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
   }
 
   .source {
@@ -248,6 +308,55 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     padding: 0 2px;
+  }
+
+  .mute-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    max-height: 96px;
+    overflow-y: auto;
+  }
+
+  .mute-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+  }
+
+  .mute-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mute-chip:hover {
+    background: var(--primary-soft);
+  }
+
+  .mute-chip.off {
+    color: var(--muted);
+    background: none;
+  }
+
+  .mute-chip.off span {
+    text-decoration: line-through;
   }
 
   .picker-foot {

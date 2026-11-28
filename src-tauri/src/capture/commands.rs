@@ -8,6 +8,17 @@ pub async fn list_sources() -> Vec<Source> {
     tokio::task::spawn_blocking(super::list_sources).await.unwrap_or_default()
 }
 
+/// Os apps com som aberto, para mutar na tela inteira.
+#[tauri::command]
+pub async fn audio_apps() -> Vec<super::contracts::AudioApp> {
+    tokio::task::spawn_blocking(super::audio_apps).await.unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn capture_permission(ask: bool) -> bool {
+    tokio::task::spawn_blocking(move || super::permission(ask)).await.unwrap_or(true)
+}
+
 #[tauri::command]
 pub async fn thumbnail(id: String) -> Option<String> {
     tokio::task::spawn_blocking(move || super::thumbnail(&id)).await.ok().flatten()
@@ -23,8 +34,9 @@ pub async fn start_capture(
     audio: bool,
     gpu: bool,
     native_send: Option<u32>,
+    muted: Option<Vec<String>>,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || super::start(&id, height, fps, audio, gpu, native_send))
+    tokio::task::spawn_blocking(move || super::start(&id, height, fps, audio, gpu, native_send, muted.unwrap_or_default()))
         .await
         .map_err(|e| e.to_string())?
 }

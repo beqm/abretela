@@ -346,6 +346,25 @@ pub fn selfhost_admin_key(script_name: String) -> Result<Option<String>, String>
     secrets::admin_key(&script_name)
 }
 
+/// A senha guardada de um servidor de outra pessoa em que já entrei (`None`
+/// se não houver): o app só pede a senha na primeira vez.
+#[tauri::command]
+pub fn server_password(url: String) -> Result<Option<String>, String> {
+    secrets::server_password(&url)
+}
+
+/// Guarda a senha que funcionou ao entrar num servidor de outra pessoa.
+#[tauri::command]
+pub fn server_password_save(url: String, password: String) -> Result<(), String> {
+    secrets::set_server_password(&url, &password)
+}
+
+/// Esquece a senha de um servidor (tirado da lista, ou a senha mudou).
+#[tauri::command]
+pub fn server_password_forget(url: String) -> Result<(), String> {
+    secrets::forget_server_password(&url)
+}
+
 /// Servidores do AbreTela que já existem na conta (montados em outro PC).
 #[tauri::command]
 pub async fn selfhost_find(account_id: String) -> Result<Vec<FoundServer>, String> {

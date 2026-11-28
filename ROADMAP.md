@@ -310,7 +310,7 @@ a manda ao servidor), então ninguém precisa digitar.
   e uma aba assistindo uma transmissão (WebView e nativa), como nos testes do
   envio nativo. Chrome, Edge, Firefox (H.264 pelo OpenH264 que ele baixa) e, se
   der, Safari/iPhone e Android.
-- [ ] **W7. Lançar:** junto com a seção 6 (fase S6, versão 0.7.0). No servidor
+- [x] **W7. Lançar** (saiu na 0.7.0, 21/11/2026): junto com a seção 6 (fase S6, versão 0.7.0). No servidor
   próprio a página sai do Worker (arquivos estáticos), e não do PC do anfitrião.
 
 **Limites (ficam como estão):**
@@ -323,6 +323,59 @@ a manda ao servidor), então ninguém precisa digitar.
 ---
 
 ## 3. Linux e Mac
+
+> **Novembro de 2026: Mac e Linux saem juntos**, na mesma versão. O PR do Mac
+> feito por um colaborador ([beqm/abretela#1](https://github.com/beqm/abretela/pull/1),
+> Apple Silicon: ScreenCaptureKit, VideoToolbox, `.dmg`, CI e release em matriz)
+> entra quando o Linux estiver pronto, não antes. Antes de juntar: resolver os
+> conflitos com o que entrou na 0.7.0 (servidor próprio, navegador, TURN) e testar
+> no Windows à mão, porque ele muda o `release.yml` e o atualizador.
+
+O que o PR do Mac traz (Apple Silicon, macOS 14+): transmite pelo envio nativo e
+assiste pelo WebView, como decidido abaixo.
+
+- Captura e som: ScreenCaptureKit (`capture/mac/`). O sistema já entrega NV12
+  no tamanho final; com a aceleração desligada, BGRA convertido no processador.
+- Codificador: VideoToolbox (`encode/mac/`), com o controle de banda de baixa
+  latência do chip. Medido num M5 Pro: 1080p60 a ~4 ms por frame.
+- Sem `MediaStreamTrackGenerator` no WKWebView, o envio nativo é obrigatório
+  (`src/lib/capture/support.ts`) e a prévia da própria tela vai por um canvas.
+- Testado com `native_send_browser` e o WebKit assistindo: 1080p a 61 fps, 0%
+  de perda, Opus estéreo, camadas diferentes por espectador.
+- Falta: Macs Intel (binário universal), assinatura e notarização da Apple
+  (sem elas o Gatekeeper bloqueia na primeira abertura e a permissão de
+  gravação de tela pode ser pedida de novo a cada atualização), medir o
+  WebView e a placa no `[perf]`, e testar em sala real com vários Macs.
+
+O que o Linux traz (Ubuntu 24.04 com GNOME, no mesmo PR): transmite pelo envio
+nativo e assiste pela recepção nativa.
+
+- Assistir: o WebKitGTK não tem WebRTC (medido no 2.52), mas tem WebCodecs.
+  O app recebe no Rust com o `str0m` (`receive/`, o espelho de `send/`), manda
+  o H.264 e o Opus ainda codificados ao WebView por um WebSocket local, e o
+  WebView decodifica (`src/lib/watch/decode.ts`). O H.264 depende do pacote
+  `gstreamer1.0-libav`; sem ele o app avisa.
+- Captura: xdg-desktop-portal (`ashpd`) com PipeWire (`capture/linux/`). Quem
+  escolhe a tela é o sistema; o app não lista nem mostra miniaturas. Os frames
+  vêm em BGRx na memória e são convertidos no processador.
+- Codificador: OpenH264 no processador (`encode/linux/`), compilado junto com
+  o app. Medido num núcleo ARM: 1080p a ~5 ms por frame.
+- Som: o monitor da saída padrão do PipeWire, ou seja, o sistema inteiro.
+- Pacote: `.deb`, com as dependências declaradas. O atalho do sistema passa
+  o link `abretela://` ao app (modelo próprio em `templates/`), e o
+  `cloudflared` embutido se chama `abretela-cloudflared`, para não brigar em
+  `/usr/bin` com um que a pessoa já tenha.
+- Testado sem tela, numa máquina virtual: `native_send_browser` assistido pelo
+  Chromium (1080p a 60 fps, 0,03% de perda) e pela recepção nativa; a captura
+  e o som contra um PipeWire de teste. Falta o teste com tela de verdade: a
+  janela do portal, a bandeja, o link `abretela://`, a tela cheia.
+- Falta: tirar o som do próprio AbreTela do que é transmitido (hoje quem
+  transmite com som e assiste ao mesmo tempo devolve o som de quem ele
+  assiste); codificar pela placa (VA-API); repasse (TURN) quando os dois
+  lados são nativos (o `str0m` não tem cliente TURN); outras distribuições e
+  X11; decidir a licença de patentes do H.264 ao compilar o OpenH264 junto
+  (a da Cisco só cobre o binário que ela distribui); um AppImage (precisa
+  levar os codecs junto, e ainda não foi gerado nem testado).
 
 Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
 
@@ -347,7 +400,7 @@ Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
   |---|---|---|
   | Windows | nativo | WebView (já funciona) |
   | Mac | nativo (obrigatório) | WebView (Safari tem WebRTC para receber) |
-  | Linux | nativo (obrigatório) | provavelmente nativo: decodificar no Rust e mostrar o vídeo (a parte mais trabalhosa; pode vir depois) |
+  | Linux | nativo (obrigatório) | nativo: o Rust recebe e o WebView decodifica com o WebCodecs |
 
 Outros pontos:
 
@@ -488,9 +541,12 @@ está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
   lista. Cabe uma lista grande (rola). No meio, as ações de hoje: criar uma
   sala pelo túnel e entrar por um link.
 - **Senha:** o link do servidor não leva a senha (no túnel continua levando), e
-  o app **pede a senha toda vez** (decidido em novembro de 2026, por
-  segurança): a lista guarda só o endereço e o nome. O dono entra pela chave de
-  administrador, sem senha.
+  o app **pede a senha só na primeira vez** (mudou em novembro de 2026, a
+  pedido de quem usa; antes pedia toda vez): a senha que funcionou fica no cofre
+  do sistema (Gerenciador de Credenciais, Chaves do macOS ou Secret Service),
+  nunca no `localStorage`; a lista guarda só o endereço e o nome. Senha errada
+  apaga a guardada e pede de novo; tirar o servidor da lista também a apaga. O
+  dono entra pela chave de administrador, sem senha.
 - **Quem é o dono:** a chave de administrador (abaixo), nunca o nome, o IP ou a
   conta da Cloudflare. O app do dono manda a chave ao conectar; o Worker compara
   com o hash que guarda e marca aquela conexão como dona. Depois: chaves de
@@ -653,7 +709,8 @@ resto. Depois disso não precisa voltar ao painel da Cloudflare para nada.
   Worker (servido em `/`) e no app (o túnel serve em `/watch`). A barra de
   servidores do app passou a perguntar quem está em cada servidor só com a
   janela em foco (economiza o limite grátis de quem tem o servidor).
-- [ ] **S7. Lançar** (0.7.0): CHANGELOG, PR `dev` → `main`, e só então a tag.
+- [x] **S7. Lançar**: saiu na 0.7.0 (21/11/2026). Depois dela, na `dev`: a página do
+  navegador põe "Abrir no AbreTela" primeiro e lembra quem tem o app (servidor versão 4).
 
 ---
 
@@ -696,26 +753,18 @@ sala e não depende da seção 6.
 
 ---
 
-## Pendências do caso do Eliaga
+## Caso do Eliaga (resolvido em novembro de 2026)
 
-Ninguém consegue assistir a tela dele; ele assiste todo mundo. Outra pessoa na
-mesma internet funciona, e o firewall desligado não muda nada: não é rede nem
-firewall.
-
-- Ele passou para o Windows 11 e continua sem funcionar. Cai a suspeita de
-  sobrecarga por falta de limite de fps no Windows 10; as correções só para o
-  Windows 10 (limitar fps, capturar no tamanho do espectador) ficam de lado.
-- Próximo passo: diagnóstico detalhado no log quando a conexão falha (etapa
-  ICE ou DTLS, pares de rota testados e respostas, portas públicas) e pegar o
-  log dos dois lados numa tentativa. Os logs de rede agora ficam todos em
-  `src/lib/transport/diagnostics.ts`.
-- Se for algo na ponte de frames dele, o envio nativo (seção 2) elimina a ponte.
+Ninguém conseguia assistir a tela dele, e ele assistia todo mundo. O log com o
+diagnóstico de rede mostrou que os roteadores dos dois lados trocavam a porta
+pública conforme o destino (NAT simétrico), então a conexão direta não saía. O
+TURN do anfitrião (seção 4.4) resolveu: com o repasse, a tela dele abre.
 
 ---
 
 ## Outras ideias levantadas (sem ordem)
 
-- **TURN** para quem não conecta direto: ver a seção 4.
+- **TURN** para quem não conecta direto: feito (seção 4.4 e servidor próprio).
 - Mostrar **quem está te assistindo** enquanto você transmite.
 - **Notificação do Windows** quando alguém abre a tela, com clique para assistir.
 - **Atalhos globais** (ex.: abrir/fechar sua tela sem sair do jogo).

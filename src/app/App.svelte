@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+  import { getVersion } from "@tauri-apps/api/app";
   import Home from "../features/home/Home.svelte";
   import Room from "../features/room/Room.svelte";
   import Welcome from "../features/home/Welcome.svelte";
@@ -9,12 +10,27 @@
   import type { RoomClient } from "../lib/room";
   import { log } from "../lib/log";
   import { prefs, t } from "../lib/prefs.svelte";
+  import { LAST_VERSION_KEY, notesFor, shouldShowNotes, type ReleaseNotes } from "../lib/changelog";
+  import WhatsNew from "../ui/WhatsNew.svelte";
 
   type ActiveRoom = { client: RoomClient; room: string; password: string; isHost: boolean };
 
   let room = $state<ActiveRoom | null>(null);
   /** Link de convite (abretela://...) que chegou e ainda não foi usado. */
   let link = $state<string | null>(null);
+  /** "O que mudou", na primeira abertura depois de uma atualização. */
+  let whatsNew = $state<ReleaseNotes | null>(null);
+
+  async function checkWhatsNew() {
+    const version = await getVersion();
+    const lastSeen = localStorage.getItem(LAST_VERSION_KEY);
+    // quem já tem nome salvo usava uma versão de antes desta tela
+    if (shouldShowNotes(version, lastSeen, !!prefs.name)) {
+      whatsNew = notesFor(version);
+      if (whatsNew) log.info("app", `Updated to version ${version}${lastSeen ? ` from ${lastSeen}` : ""}, showing what changed`);
+    }
+    localStorage.setItem(LAST_VERSION_KEY, version);
+  }
 
   if (import.meta.env.DEV && location.search.includes("mock")) {
     import("../dev/mockRoom").then(({ mockRoom }) => {
@@ -42,6 +58,7 @@
   onMount(() => {
     // a janelinha de abertura fecha e esta janela aparece
     invoke("app_ready").catch(() => {});
+    checkWhatsNew().catch(() => {});
     getCurrent()
       .then((urls) => openLink(urls?.[0]))
       .catch(() => {});
@@ -79,4 +96,8 @@
   <Welcome />
 {:else}
   <Home onenter={(r) => (room = r)} {link} onlinkused={() => (link = null)} />
+{/if}
+
+{#if whatsNew}
+  <WhatsNew notes={whatsNew} onclose={() => (whatsNew = null)} />
 {/if}
