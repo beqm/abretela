@@ -10,8 +10,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { describeError, log } from "../log";
+import { canReceiveInWebView } from "../capture/support";
 import { MeshTransport } from "./mesh";
-import type { MediaTransport, Publication, TransportHost, TransportSignal } from "./types";
+import { NativeWatcher } from "./nativeWatch";
+import type { MediaTransport, Publication, TransportHost, TransportSignal, Watcher } from "./types";
 
 /** O que o Rust manda (evento `native-send`). */
 export type NativeEvent = { viewer: string } & (
@@ -21,7 +23,8 @@ export type NativeEvent = { viewer: string } & (
 );
 
 export class NativeTransport implements MediaTransport {
-  private mesh: MeshTransport;
+  /** Quem assiste os outros: a malha ou, sem WebRTC no WebView, a recepção nativa. */
+  private watcher: Watcher;
   private sharing = false;
   /** Quem está com uma conexão nativa aberta (e quando ela terminou de abrir). */
   private viewers = new Map<string, Promise<unknown>>();
@@ -30,7 +33,7 @@ export class NativeTransport implements MediaTransport {
   private unlisten: Promise<UnlistenFn>;
 
   constructor(private host: TransportHost) {
-    this.mesh = new MeshTransport(host);
+    this.watcher = canReceiveInWebView() ? new MeshTransport(host) : new NativeWatcher(host);
     this.unlisten = listen<NativeEvent>("native-send", (e) => this.onNative(e.payload));
     log.info("sharing", "Using native sending (experimental): my screen is encoded and sent by the app itself");
   }
@@ -108,19 +111,19 @@ export class NativeTransport implements MediaTransport {
   // ---------- assistir (igual à malha) ----------
 
   watch(peerId: string) {
-    this.mesh.watch(peerId);
+    this.watcher.watch(peerId);
   }
 
   stopWatching(peerId: string, tell: boolean) {
-    this.mesh.stopWatching(peerId, tell);
+    this.watcher.stopWatching(peerId, tell);
   }
 
   requestView(peerId: string, height: number) {
-    this.mesh.requestView(peerId, height);
+    this.watcher.requestView(peerId, height);
   }
 
   describeStuck(peerId: string): string {
-    return this.mesh.describeStuck(peerId);
+    return this.watcher.describeStuck(peerId);
   }
 
   // ---------- geral ----------
@@ -167,26 +170,26 @@ export class NativeTransport implements MediaTransport {
           }
           return;
         }
-        this.mesh.handleSignal(from, data);
+        this.watcher.handleSignal(from, data);
         return;
       case "offer":
-        this.mesh.handleSignal(from, data);
+        this.watcher.handleSignal(from, data);
         return;
     }
   }
 
   refreshIceServers() {
-    this.mesh.refreshIceServers();
+    this.watcher.refreshIceServers();
   }
 
   removePeer(peerId: string) {
     this.closeViewer(peerId);
-    this.mesh.removePeer(peerId);
+    this.watcher.removePeer(peerId);
   }
 
   close() {
     if (this.sharing) this.unpublish();
-    this.mesh.close();
+    this.watcher.close();
     this.unlisten.then((stop) => stop()).catch(() => {});
   }
 }

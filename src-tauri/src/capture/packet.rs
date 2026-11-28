@@ -6,12 +6,23 @@
 //! Cabeçalho de 16 bytes: `[tipo, formato, largura u16 LE, altura u16 LE, 0...]`,
 //! seguido dos dados: vídeo em I420 ou NV12 (1,5 byte por pixel, BT.709 de
 //! faixa limitada) ou áudio em f32 estéreo intercalado a 48 kHz.
+//!
+//! A mídia recebida de outra pessoa pela recepção nativa (`receive/`) vai pelo
+//! mesmo WebSocket ainda codificada (H.264 em Annex B ou Opus), com outro
+//! cabeçalho de 16 bytes: `[tipo, marcas, 0 x 6, tempo em microssegundos u64 LE]`.
 
 use axum::body::Bytes;
+use std::time::Duration;
 
 pub const KIND_VIDEO: u8 = 1;
 pub const KIND_AUDIO: u8 = 2;
 pub const HEADER: usize = 16;
+/// Vídeo recebido, ainda codificado (H.264, uma unidade de acesso em Annex B).
+pub const KIND_ENCODED_VIDEO: u8 = 3;
+/// Som recebido, ainda codificado (um pacote Opus).
+pub const KIND_ENCODED_AUDIO: u8 = 4;
+/// Marca (segundo byte) de quadro-chave.
+pub const FLAG_KEYFRAME: u8 = 1;
 
 /// Como os pixels do vídeo estão organizados.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +98,16 @@ pub fn audio_packet(samples: impl IntoIterator<Item = u8>) -> Bytes {
     Bytes::from(pkt)
 }
 
+/// Pacote de mídia recebida ainda codificada (`KIND_ENCODED_VIDEO` ou
+/// `KIND_ENCODED_AUDIO`), com o tempo desde o começo da recepção.
+pub fn encoded_packet(kind: u8, keyframe: bool, timestamp: Duration, data: &[u8]) -> Bytes {
+    let mut pkt = Vec::with_capacity(HEADER + data.len());
+    pkt.extend_from_slice(&[kind, if keyframe { FLAG_KEYFRAME } else { 0 }, 0, 0, 0, 0, 0, 0]);
+    pkt.extend_from_slice(&(timestamp.as_micros() as u64).to_le_bytes());
+    pkt.extend_from_slice(data);
+    Bytes::from(pkt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +148,26 @@ mod tests {
             };
             assert_eq!(hex(&bytes[..HEADER]), ex["header_hex"].as_str().unwrap(), "{name}");
             assert_eq!(bytes.len() - HEADER, ex["payload"].as_u64().unwrap() as usize, "{name}");
+        }
+    }
+
+    #[test]
+    fn encoded_packets_match_the_fixture() {
+        let f: Value = serde_json::from_str(FIXTURE).unwrap();
+        assert_eq!(f["encoded"]["video"], KIND_ENCODED_VIDEO);
+        assert_eq!(f["encoded"]["audio"], KIND_ENCODED_AUDIO);
+        assert_eq!(f["encoded"]["keyframe_flag"], FLAG_KEYFRAME);
+        for ex in f["encoded_examples"].as_array().unwrap() {
+            let name = ex["name"].as_str().unwrap();
+            let data = vec![7u8; ex["payload"].as_u64().unwrap() as usize];
+            let bytes = encoded_packet(
+                ex["kind"].as_u64().unwrap() as u8,
+                ex["keyframe"].as_bool().unwrap(),
+                Duration::from_micros(ex["timestamp_us"].as_u64().unwrap()),
+                &data,
+            );
+            assert_eq!(hex(&bytes[..HEADER]), ex["header_hex"].as_str().unwrap(), "{name}");
+            assert_eq!(&bytes[HEADER..], &data[..], "{name}");
         }
     }
 }

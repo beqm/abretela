@@ -1,12 +1,29 @@
-// Baixa o cloudflared oficial para ser embutido no app como sidecar.
-import { mkdir, writeFile, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+// Baixa o cloudflared oficial deste sistema para ser embutido no app como sidecar.
+import { execFileSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// sistema-processador do Node -> [arquivo na release, nome do sidecar (triple do Rust)]
+const TARGETS = {
+  "win32-x64": ["cloudflared-windows-amd64.exe", "cloudflared-x86_64-pc-windows-msvc.exe"],
+  "darwin-arm64": ["cloudflared-darwin-arm64.tgz", "cloudflared-aarch64-apple-darwin"],
+  "darwin-x64": ["cloudflared-darwin-amd64.tgz", "cloudflared-x86_64-apple-darwin"],
+  // no Linux o sidecar é instalado em /usr/bin: com o nome do app na frente,
+  // para não brigar com um cloudflared que a pessoa já tenha instalado
+  "linux-x64": ["cloudflared-linux-amd64", "abretela-cloudflared-x86_64-unknown-linux-gnu"],
+  "linux-arm64": ["cloudflared-linux-arm64", "abretela-cloudflared-aarch64-unknown-linux-gnu"],
+};
+
+const key = `${process.platform}-${process.arch}`;
+const target = TARGETS[key];
+if (!target) throw new Error(`Sem cloudflared para este sistema (${key})`);
+const [asset, sidecar] = target;
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const out = resolve(root, "src-tauri/binaries/cloudflared-x86_64-pc-windows-msvc.exe");
-const url =
-  "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
+const out = resolve(root, "src-tauri/binaries", sidecar);
+const url = `https://github.com/cloudflare/cloudflared/releases/latest/download/${asset}`;
 
 if (process.argv.includes("--force") === false) {
   try {
@@ -19,6 +36,22 @@ if (process.argv.includes("--force") === false) {
 console.log("Baixando", url);
 const res = await fetch(url);
 if (!res.ok) throw new Error(`Falha no download: HTTP ${res.status}`);
+const data = Buffer.from(await res.arrayBuffer());
 await mkdir(dirname(out), { recursive: true });
-await writeFile(out, Buffer.from(await res.arrayBuffer()));
+if (asset.endsWith(".tgz")) {
+  // no macOS a release vem compactada, com o executável `cloudflared` dentro
+  const tmp = await mkdtemp(join(tmpdir(), "cloudflared-"));
+  try {
+    const archive = join(tmp, asset);
+    await writeFile(archive, data);
+    execFileSync("tar", ["-xzf", archive, "-C", tmp, "cloudflared"]);
+    await rename(join(tmp, "cloudflared"), out);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+} else {
+  await writeFile(out, data);
+}
+// fora do Windows o arquivo precisa da permissão de execução
+if (process.platform !== "win32") await chmod(out, 0o755);
 console.log("Salvo em", out);

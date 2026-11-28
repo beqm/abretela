@@ -7,6 +7,7 @@
   import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../lib/signaling";
   import { serverInfo } from "../lib/selfhost";
   import { prefs, t, type MessageKey } from "../lib/prefs.svelte";
+  import { isLinux, isMac } from "../lib/platform";
   import { appLink, DOWNLOAD_URL, isMobile, rememberedApp, roomFromPage, tryOpenApp } from "./page";
   import logoSvg from "../../public/logo.svg?raw";
   import Tile from "../features/room/Tile.svelte";
@@ -27,6 +28,8 @@
   const logo = `data:image/svg+xml,${encodeURIComponent(logoSvg)}`;
   /** No computador o app existe: abrir nele é o caminho principal. */
   const desktop = !isMobile(navigator.userAgent);
+  // o botão de download fala do sistema de quem abriu a página
+  const downloadLabel: MessageKey = isMac() ? "webDownloadMac" : isLinux() ? "webDownloadLinux" : "webDownloadWin";
   /** Abrir no app: tentando, abriu, ou demorou (talvez não tenha o app). */
   let app = $state<"idle" | "trying" | "opened" | "slow">("idle");
   let stopTrying: (() => void) | null = null;
@@ -190,7 +193,7 @@
           {#if app === "slow"}
             <p class="hint warn">
               {t("webNotOpened")}
-              <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t("webDownloadWin")}</a>
+              <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t(downloadLabel)}</a>
             </p>
           {:else}
             <p class="hint center">{t("webOpenAppHint")}</p>
@@ -223,7 +226,7 @@
 
       <p class="foot">
         {#if desktop}
-          {t("webNoApp")} <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t("webDownloadWin")}</a>
+          {t("webNoApp")} <a href={DOWNLOAD_URL} target="_blank" rel="noopener">{t(downloadLabel)}</a>
         {:else}
           {t("webMobileHint")}
         {/if}

@@ -21,7 +21,8 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 #[derive(Serialize)]
 pub struct Source {
     pub id: String,
-    /// "screen" ou "window".
+    /// "screen" ou "window"; "system" quando é o próprio sistema que pergunta
+    /// a tela ou a janela ao começar (Linux), e então a lista só tem esta.
     pub kind: &'static str,
     pub title: String,
     pub app: String,
@@ -36,6 +37,8 @@ pub struct SourceInfo {
 }
 
 /// De que processo capturar o som.
+// no Linux o som é o do sistema inteiro, e ninguém lê os campos
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 #[derive(Clone, Copy)]
 pub struct AudioTarget {
     pub pid: u32,
@@ -50,6 +53,8 @@ pub struct VideoConfig {
     pub max_height: u32,
     pub fps: u32,
     /// Converter na placa de vídeo (aceleração de hardware ligada).
+    // no Linux a conversão é sempre no processador
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub gpu: bool,
 }
 
@@ -83,6 +88,9 @@ pub trait AudioSource: Sync {
 }
 
 /// Converte frames do tipo `F` (o frame da fonte de vídeo) em pacotes.
+// no macOS o próprio sistema converte e no Linux há um caminho só: ninguém
+// implementa este contrato
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
 pub trait FrameConverter<F> {
     /// Converte e reduz o frame para caber em `max_w` x `max_h`.
     fn convert(&mut self, frame: &mut F, max_w: u32, max_h: u32) -> Result<VideoPacket, BoxError>;

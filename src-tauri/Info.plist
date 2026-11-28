@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- o macOS pergunta isto quando o app fala direto com outro computador da mesma rede (o vídeo vai de um para o outro, sem servidor) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>O AbreTela usa a rede local para enviar e receber as telas direto entre os computadores da sala.</string>
+</dict>
+</plist>

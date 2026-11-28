@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
+  import { shouldSendNatively } from "../../lib/capture/support";
   import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../../lib/signaling";
   import { parseInvite, roomLabel } from "../../lib/invite";
   import { forget, remember, sameServer, serverEntries, type ServerEntry } from "../../lib/servers";
@@ -123,7 +124,7 @@
       });
       // entra com a chave do anfitrião: pode tirar gente da sala
       const client = new RoomClient(`ws://127.0.0.1:${info.port}/ws`, trimmedName, info.password, {
-        nativeSend: prefs.nativeSend,
+        nativeSend: shouldSendNatively(prefs.nativeSend),
         admin: info.hostKey,
       });
       try {
@@ -180,7 +181,7 @@
     askPassword = null;
     try {
       const client = new RoomClient(target.ws, trimmedName, password ?? "", {
-        nativeSend: prefs.nativeSend,
+        nativeSend: shouldSendNatively(prefs.nativeSend),
         admin: admin ?? undefined,
       });
       await client.connect((n) => {

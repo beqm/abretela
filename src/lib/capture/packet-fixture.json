@@ -1,5 +1,5 @@
 {
-  "$comment": "Formato dos pacotes da captura nativa. Conferido pelos testes do Rust (capture/packet.rs) e do app (capture/packet.test.ts).",
+  "$comment": "Formato dos pacotes do WebSocket local: os da captura nativa (examples) e os da mídia recebida ainda codificada (encoded_examples). Conferido pelos testes do Rust (capture/packet.rs) e do app (capture/packet.test.ts).",
   "header": 16,
   "kind": {
     "video": 1,
@@ -42,6 +42,37 @@
       "kind": 2,
       "payload": 3840,
       "header_hex": "02000000000000000000000000000000"
+    }
+  ],
+  "encoded": {
+    "video": 3,
+    "audio": 4,
+    "keyframe_flag": 1
+  },
+  "encoded_examples": [
+    {
+      "name": "encoded video keyframe at 1.5 s",
+      "kind": 3,
+      "keyframe": true,
+      "timestamp_us": 1500000,
+      "payload": 2048,
+      "header_hex": "030100000000000060e3160000000000"
+    },
+    {
+      "name": "encoded video frame at 33.333 ms",
+      "kind": 3,
+      "keyframe": false,
+      "timestamp_us": 33333,
+      "payload": 512,
+      "header_hex": "03000000000000003582000000000000"
+    },
+    {
+      "name": "encoded audio at 20 ms",
+      "kind": 4,
+      "keyframe": true,
+      "timestamp_us": 20000,
+      "payload": 160,
+      "header_hex": "0401000000000000204e000000000000"
     }
   ]
 }

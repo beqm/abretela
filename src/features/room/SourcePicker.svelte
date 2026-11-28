@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { capturePermission, getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { systemPickedSource } from "../../lib/capture/support";
   import {
     allowedFps,
     allowedHeights,
@@ -30,6 +31,8 @@
   let sources = $state<Source[]>([]);
   let thumbs = $state<Record<string, string | null>>({});
   let loading = $state(true);
+  /** O sistema deixa capturar a tela (no macOS a pessoa precisa permitir). */
+  let allowed = $state(true);
   let selected = $state<string | null>(null);
   // svelte-ignore state_referenced_locally
   let quality = $state<Quality>(clampQuality(prefs, settings));
@@ -43,13 +46,17 @@
     { value: "window" as const, label: t("apps") },
     { value: "screen" as const, label: t("screens") },
   ]);
-  const selectedSource = $derived(sources.find((s) => s.id === selected));
+  /** No Linux é o sistema que pergunta a tela ou a janela: não há o que listar. */
+  const system = $derived(systemPickedSource(sources));
+  const selectedSource = $derived(system ?? sources.find((s) => s.id === selected));
 
   const titleOf = (s: Source) => (s.kind === "screen" ? t("screenN", { n: s.title }) : s.title);
 
   async function refresh() {
     loading = true;
     sources = await listSources();
+    // sem nenhuma fonte, pode ser a permissão do sistema que falta
+    allowed = sources.length > 0 || (await capturePermission().catch(() => true));
     thumbs = {};
     loading = false;
     if (selected && !sources.some((s) => s.id === selected)) selected = null;
@@ -83,15 +90,29 @@
   <div class="modal picker">
     <header class="modal-head">
       <h2>{switching ? t("switchScreenTitle") : t("shareTitle")}</h2>
-      <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {#if !system}
+        <Segmented options={tabs} value={tab} onchange={(v) => (tab = v)} />
+      {/if}
       <div class="spacer"></div>
-      <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {#if !system}
+        <button class="icon-btn" title={t("refresh")} onclick={refresh}><Icon name="refresh" /></button>
+      {/if}
       <button class="icon-btn" title={t("close")} onclick={oncancel}><Icon name="x" /></button>
     </header>
 
     <div class="sources">
       {#if loading}
         <div class="picker-empty"><span class="spinner"></span> {t("searching")}</div>
+      {:else if system}
+        <div class="picker-empty system">
+          <span class="muted"><Icon name="monitor" size={40} /></span>
+          <span class="muted">{t("systemPicks", { button: switching ? t("switchTo") : t("startStreaming") })}</span>
+        </div>
+      {:else if !allowed}
+        <div class="picker-empty permission">
+          <span class="muted">{t("screenPermission")}</span>
+          <button class="btn primary" onclick={() => capturePermission(true).then(refresh)}>{t("screenPermissionAllow")}</button>
+        </div>
       {:else if visible.length === 0}
         <div class="picker-empty muted">{t("nothingFound")}</div>
       {:else}
@@ -132,7 +153,7 @@
       </div>
       <label class="check">
         <input type="checkbox" bind:checked={audio} />
-        {tab === "window" ? t("appAudio") : t("systemAudio")}
+        {tab === "window" && !system ? t("appAudio") : t("systemAudio")}
       </label>
       <div class="spacer"></div>
       <button class="btn" onclick={oncancel}>{t("cancel")}</button>
@@ -180,6 +201,13 @@
     align-items: center;
     gap: 10px;
     padding: 40px;
+  }
+
+  .picker-empty.permission,
+  .picker-empty.system {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
   }
 
   .source {

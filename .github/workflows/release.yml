@@ -1,5 +1,6 @@
-# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador, assina a
-# atualização e publica a Release com o latest.json usado pelo auto updater.
+# Ao enviar uma tag "v*" (ex.: v0.1.1), compila o instalador de cada sistema
+# (Windows, macOS e Linux), assina a atualização e publica a Release com o
+# latest.json usado pelo auto updater.
 name: Release
 
 on:
@@ -11,9 +12,23 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      # um sistema por vez: todos escrevem na mesma Release e no mesmo latest.json
+      max-parallel: 1
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      # no Linux o WebView, a bandeja, o PipeWire e o chaveiro vêm do sistema;
+      # o nasm é para o assembly do OpenH264
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev libpipewire-0.3-dev libdbus-1-dev clang nasm
 
       - uses: actions/setup-node@v5
         with:
@@ -45,7 +60,9 @@ jobs:
             echo "$notes"
             echo
             echo "---"
-            echo "Baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Windows: baixe o **AbreTela_${version}_x64-setup.exe** abaixo e instale."
+            echo "Mac (Apple Silicon): baixe o **AbreTela_${version}_aarch64.dmg** e veja no README como abrir pela primeira vez."
+            echo "Linux (Ubuntu 24.04): baixe o **AbreTela_${version}_amd64.deb** e instale com \`sudo apt install ./AbreTela_${version}_amd64.deb\`."
             echo "Quem já tem o AbreTela recebe esta versão automaticamente ao abrir o app."
             echo "END_OF_NOTES"
           } >> "$GITHUB_OUTPUT"

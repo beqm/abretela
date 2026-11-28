@@ -4,6 +4,8 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { findUpdate, installUpdate, type Update } from "../../lib/update";
   import { LANGUAGES, prefs, t, type Theme } from "../../lib/prefs.svelte";
+  import { canSendFromWebView } from "../../lib/capture/support";
+  import { isLinux, isMac } from "../../lib/platform";
   import Icon, { type IconName } from "../../ui/Icon.svelte";
   import Toggle from "../../ui/Toggle.svelte";
   import Credits from "../../ui/Credits.svelte";
@@ -108,6 +110,9 @@
       unitDisplay: "short",
     }).format(hours ? minutes / 60 : minutes);
   }
+  // no macOS a "bandeja" é a barra de menus
+  const mac = isMac();
+  const linux = isLinux();
 
   let autostart = $state(false);
   let autostartReady = $state(false);
@@ -200,15 +205,15 @@
           <div class="group-label"><Icon name="monitor" size={15} /> {t("behavior")}</div>
           <div class="toggles">
             <Toggle
-              label={t("startWithWindows")}
-              hint={t("startWithWindowsHint")}
+              label={t(mac ? "startWithMac" : linux ? "startWithLinux" : "startWithWindows")}
+              hint={t(mac ? "startWithMacHint" : linux ? "startWithLinuxHint" : "startWithWindowsHint")}
               checked={autostart}
               disabled={!autostartReady}
               onchange={setAutostart}
             />
             <Toggle
-              label={t("closeToTray")}
-              hint={t("closeToTrayHint")}
+              label={t(mac ? "closeToMenuBar" : "closeToTray")}
+              hint={t(mac ? "closeToMenuBarHint" : "closeToTrayHint")}
               checked={prefs.closeToTray}
               onchange={(v) => (prefs.closeToTray = v)}
             />
@@ -224,18 +229,26 @@
         <section class="settings-group">
           <div class="group-label"><Icon name="tv" size={15} /> {t("performance")}</div>
           <div class="toggles">
-            <Toggle
-              label={t("hwAccel")}
-              hint={t("hwAccelHint")}
-              checked={prefs.hwAccel}
-              onchange={(v) => (prefs.hwAccel = v)}
-            />
-            <Toggle
-              label={t("nativeSend")}
-              hint={t("nativeSendHint")}
-              checked={prefs.nativeSend}
-              onchange={(v) => (prefs.nativeSend = v)}
-            />
+            <!-- no Linux a captura e o codificador são sempre no processador: não há o que ligar -->
+            {#if !linux}
+              <Toggle
+                label={t("hwAccel")}
+                hint={t("hwAccelHint")}
+                checked={prefs.hwAccel}
+                onchange={(v) => (prefs.hwAccel = v)}
+              />
+            {/if}
+            {#if canSendFromWebView()}
+              <Toggle
+                label={t("nativeSend")}
+                hint={t("nativeSendHint")}
+                checked={prefs.nativeSend}
+                onchange={(v) => (prefs.nativeSend = v)}
+              />
+            {:else}
+              <!-- onde o WebView não consegue mandar a tela (macOS), não há o que escolher -->
+              <Toggle label={t("nativeSend")} hint={t("nativeSendAlwaysOn")} checked disabled onchange={() => {}} />
+            {/if}
           </div>
         </section>
 

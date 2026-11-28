@@ -5,7 +5,8 @@
 //! (`00 00 00 01` antes de cada NAL), pronto para mandar por WebRTC. Cada
 //! sistema tem a própria implementação: no Windows, Media Foundation (a placa
 //! de vídeo pelo NVENC/AMF/QuickSync, com o codificador do próprio Windows no
-//! processador como reserva).
+//! processador como reserva); no macOS, VideoToolbox; no Linux, OpenH264 (no
+//! processador).
 //!
 //! A codificação é em fila: `encode` só entrega o frame e volta; cada frame
 //! codificado sai por [`OnEncoded`] assim que fica pronto (na placa de vídeo,
@@ -15,7 +16,16 @@
 use crate::capture::{contracts::BoxError, packet::VideoPacket};
 use std::{sync::Arc, time::Duration};
 
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "macos")]
+mod mac;
+#[cfg(windows)]
 mod win;
+
+/// Este sistema tem codificador pela placa de vídeo? No Linux ainda não: lá
+/// é sempre o processador, e isso não é uma falha para avisar.
+pub const HAS_HARDWARE: bool = cfg!(not(target_os = "linux"));
 
 /// Como codificar.
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +36,8 @@ pub struct EncoderConfig {
     /// Bits por segundo pretendidos (o controle de banda muda depois).
     pub bitrate: u32,
     /// Só usar o processador (para testar a reserva).
+    // no Linux só há o processador, e ninguém lê este campo
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub software_only: bool,
 }
 
@@ -63,7 +75,12 @@ pub trait VideoEncoder: Send {
 
 /// O melhor codificador disponível neste PC.
 pub fn open(config: EncoderConfig, on_encoded: OnEncoded) -> Result<Box<dyn VideoEncoder>, BoxError> {
-    Ok(Box::new(win::MfEncoder::open(config, on_encoded)?))
+    #[cfg(windows)]
+    return Ok(Box::new(win::MfEncoder::open(config, on_encoded)?));
+    #[cfg(target_os = "macos")]
+    return Ok(Box::new(mac::VtEncoder::open(config, on_encoded)?));
+    #[cfg(target_os = "linux")]
+    return Ok(Box::new(linux::OpenH264Encoder::open(config, on_encoded)?));
 }
 
 /// O frame (Annex B) tem um quadro IDR (NAL tipo 5)?

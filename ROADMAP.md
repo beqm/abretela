@@ -331,6 +331,52 @@ a manda ao servidor), então ninguém precisa digitar.
 > conflitos com o que entrou na 0.7.0 (servidor próprio, navegador, TURN) e testar
 > no Windows à mão, porque ele muda o `release.yml` e o atualizador.
 
+O que o PR do Mac traz (Apple Silicon, macOS 14+): transmite pelo envio nativo e
+assiste pelo WebView, como decidido abaixo.
+
+- Captura e som: ScreenCaptureKit (`capture/mac/`). O sistema já entrega NV12
+  no tamanho final; com a aceleração desligada, BGRA convertido no processador.
+- Codificador: VideoToolbox (`encode/mac/`), com o controle de banda de baixa
+  latência do chip. Medido num M5 Pro: 1080p60 a ~4 ms por frame.
+- Sem `MediaStreamTrackGenerator` no WKWebView, o envio nativo é obrigatório
+  (`src/lib/capture/support.ts`) e a prévia da própria tela vai por um canvas.
+- Testado com `native_send_browser` e o WebKit assistindo: 1080p a 61 fps, 0%
+  de perda, Opus estéreo, camadas diferentes por espectador.
+- Falta: Macs Intel (binário universal), assinatura e notarização da Apple
+  (sem elas o Gatekeeper bloqueia na primeira abertura e a permissão de
+  gravação de tela pode ser pedida de novo a cada atualização), medir o
+  WebView e a placa no `[perf]`, e testar em sala real com vários Macs.
+
+O que o Linux traz (Ubuntu 24.04 com GNOME, no mesmo PR): transmite pelo envio
+nativo e assiste pela recepção nativa.
+
+- Assistir: o WebKitGTK não tem WebRTC (medido no 2.52), mas tem WebCodecs.
+  O app recebe no Rust com o `str0m` (`receive/`, o espelho de `send/`), manda
+  o H.264 e o Opus ainda codificados ao WebView por um WebSocket local, e o
+  WebView decodifica (`src/lib/watch/decode.ts`). O H.264 depende do pacote
+  `gstreamer1.0-libav`; sem ele o app avisa.
+- Captura: xdg-desktop-portal (`ashpd`) com PipeWire (`capture/linux/`). Quem
+  escolhe a tela é o sistema; o app não lista nem mostra miniaturas. Os frames
+  vêm em BGRx na memória e são convertidos no processador.
+- Codificador: OpenH264 no processador (`encode/linux/`), compilado junto com
+  o app. Medido num núcleo ARM: 1080p a ~5 ms por frame.
+- Som: o monitor da saída padrão do PipeWire, ou seja, o sistema inteiro.
+- Pacote: `.deb`, com as dependências declaradas. O atalho do sistema passa
+  o link `abretela://` ao app (modelo próprio em `templates/`), e o
+  `cloudflared` embutido se chama `abretela-cloudflared`, para não brigar em
+  `/usr/bin` com um que a pessoa já tenha.
+- Testado sem tela, numa máquina virtual: `native_send_browser` assistido pelo
+  Chromium (1080p a 60 fps, 0,03% de perda) e pela recepção nativa; a captura
+  e o som contra um PipeWire de teste. Falta o teste com tela de verdade: a
+  janela do portal, a bandeja, o link `abretela://`, a tela cheia.
+- Falta: tirar o som do próprio AbreTela do que é transmitido (hoje quem
+  transmite com som e assiste ao mesmo tempo devolve o som de quem ele
+  assiste); codificar pela placa (VA-API); repasse (TURN) quando os dois
+  lados são nativos (o `str0m` não tem cliente TURN); outras distribuições e
+  X11; decidir a licença de patentes do H.264 ao compilar o OpenH264 junto
+  (a da Cisco só cobre o binário que ela distribui); um AppImage (precisa
+  levar os codecs junto, e ainda não foi gerado nem testado).
+
 Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
 
 | Parte | Windows (hoje) | Mac | Linux |
@@ -354,7 +400,7 @@ Depende da fase 4 e do envio nativo (seção 2). O que hoje é só do Windows:
   |---|---|---|
   | Windows | nativo | WebView (já funciona) |
   | Mac | nativo (obrigatório) | WebView (Safari tem WebRTC para receber) |
-  | Linux | nativo (obrigatório) | provavelmente nativo: decodificar no Rust e mostrar o vídeo (a parte mais trabalhosa; pode vir depois) |
+  | Linux | nativo (obrigatório) | nativo: o Rust recebe e o WebView decodifica com o WebCodecs |
 
 Outros pontos:
 
