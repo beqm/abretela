@@ -93,7 +93,22 @@ pub fn stop() {
 /// Começa a capturar `id`; devolve a URL do WebSocket local com os frames.
 /// Com `native_send` (bitrate máximo), os frames também vão para o envio
 /// nativo (`send/`), que codifica e manda direto aos espectadores.
-pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_send: Option<u32>) -> Result<String, String> {
+/// Os apps com som aberto agora, para a lista de mutar (vazia onde o sistema
+/// não sabe separar o som por app).
+pub fn audio_apps() -> Vec<contracts::AudioApp> {
+    AUDIO.apps()
+}
+
+/// `muted`: apps (`AudioApp::id`) que quem assiste não ouve, na tela inteira.
+pub fn start(
+    id: &str,
+    height: u32,
+    fps: u32,
+    audio: bool,
+    gpu: bool,
+    native_send: Option<u32>,
+    muted: Vec<String>,
+) -> Result<String, String> {
     stop();
     let token = random_token();
     let stop = Arc::new(AtomicBool::new(false));
@@ -151,7 +166,7 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
         // o som do app vem antes do limitador do sistema e pode passar de 1,0
         let sink: Arc<dyn FrameSink> = Arc::new(limiter::Limited::new(sink));
         thread::spawn(move || {
-            if let Err(e) = AUDIO.run(target, sink, stop) {
+            if let Err(e) = AUDIO.run_muting(target, &muted, sink, stop) {
                 log_error!("audio", "Audio capture failed: {e}");
             }
         });
@@ -225,7 +240,7 @@ mod tests {
         println!("thumbnail: {:?} bytes em {:?}", thumb.map(|t| t.len()), t.elapsed());
 
         let gpu = std::env::var("CAPTURE_GPU").map_or(true, |v| v != "0");
-        let url = start(&screen, height, fps, true, gpu, None).unwrap();
+        let url = start(&screen, height, fps, true, gpu, None, Vec::new()).unwrap();
         println!("url: {url}");
         let token = url.rsplit('/').next().unwrap();
         let (mut video, mut audio) = sink::take_waiting(token).unwrap();

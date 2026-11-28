@@ -76,6 +76,10 @@ function canvasOutput(): VideoOutput {
 }
 
 export const listSources = () => invoke<Source[]>("list_sources");
+/** Um app com som aberto, para mutar na tela inteira. `id` é o que fica salvo. */
+export type AudioApp = { id: string; name: string };
+/** Os apps com som aberto agora (vazio onde o sistema não separa o som por app). */
+export const audioApps = () => invoke<AudioApp[]>("audio_apps");
 export const getThumbnail = (id: string) => invoke<string | null>("thumbnail", { id });
 /**
  * O sistema deixa o app capturar a tela? (No Windows, sempre.) Com `ask`, pede
@@ -91,8 +95,10 @@ export async function startNativeCapture(
   gpu: boolean,
   /** Bitrate máximo do envio nativo (experimental); sem ele, só o caminho de sempre. */
   nativeSend?: number,
+  /** Apps (`AudioApp.id`) que quem assiste não ouve, na tela inteira. */
+  muted: string[] = [],
 ): Promise<NativeCapture> {
-  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu, nativeSend });
+  const url = await invoke<string>("start_capture", { id: sourceId, height, fps, audio, gpu, nativeSend, muted });
   const token = url.split("/").pop()!;
 
   const video = canSendFromWebView() ? generatorOutput() : canvasOutput();

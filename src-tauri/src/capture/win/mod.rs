@@ -3,6 +3,7 @@
 
 mod audio;
 mod gpu_convert;
+mod sessions;
 
 pub use audio::WasapiLoopback;
 

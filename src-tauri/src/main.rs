@@ -102,6 +102,7 @@ fn main() {
             selfhost::server_password_forget,
             capture::commands::list_sources,
             capture::commands::capture_permission,
+            capture::commands::audio_apps,
             capture::commands::thumbnail,
             capture::commands::start_capture,
             capture::commands::stop_capture,

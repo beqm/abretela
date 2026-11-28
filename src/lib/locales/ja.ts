@@ -281,6 +281,10 @@ export const ja: Messages = {
   fps: "FPS",
   appAudio: "アプリの音声",
   systemAudio: "システムの音声",
+  muteForViewers: "視聴者にミュート:",
+  muteForViewersHint: "あなたには全部聞こえます。取り消し線のアプリの音は視聴者に届きません。",
+  muteApp: "{app} を視聴者にミュート",
+  unmuteApp: "{app} の音をまた送る",
   startStreaming: "画面をひらく",
   starting: "ひらいています...",
 };

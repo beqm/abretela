@@ -287,6 +287,10 @@ export const pt = {
   fps: "FPS",
   appAudio: "Áudio do aplicativo",
   systemAudio: "Áudio do sistema",
+  muteForViewers: "Mutar para quem assiste:",
+  muteForViewersHint: "Você continua ouvindo tudo; só quem assiste deixa de ouvir os apps riscados.",
+  muteApp: "Mutar {app} para quem assiste",
+  unmuteApp: "Voltar a mandar o som de {app}",
   startStreaming: "Abrir tela",
   starting: "Abrindo...",
 };

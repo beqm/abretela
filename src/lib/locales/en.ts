@@ -281,6 +281,10 @@ export const en: Messages = {
   fps: "FPS",
   appAudio: "App audio",
   systemAudio: "System audio",
+  muteForViewers: "Mute for viewers:",
+  muteForViewersHint: "You still hear everything; only viewers stop hearing the crossed-out apps.",
+  muteApp: "Mute {app} for viewers",
+  unmuteApp: "Send {app}'s sound again",
   startStreaming: "Open screen",
   starting: "Opening...",
 };

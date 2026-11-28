@@ -280,6 +280,10 @@ export const zh: Messages = {
   fps: "帧率",
   appAudio: "应用声音",
   systemAudio: "系统声音",
+  muteForViewers: "对观众静音：",
+  muteForViewersHint: "你仍能听到全部声音，只是观众听不到被划掉的应用。",
+  muteApp: "对观众静音 {app}",
+  unmuteApp: "重新发送 {app} 的声音",
   startStreaming: "打开屏幕",
   starting: "正在打开...",
 };

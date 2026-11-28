@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { capturePermission, getThumbnail, listSources, type Source } from "../../lib/capture/native";
+  import { audioApps, capturePermission, getThumbnail, listSources, type AudioApp, type Source } from "../../lib/capture/native";
   import { systemPickedSource } from "../../lib/capture/support";
   import {
     allowedFps,
@@ -17,7 +17,8 @@
 
   type Props = {
     settings: RoomSettings;
-    onpick: (pick: { source: Source; quality: Quality; audio: boolean }) => void;
+    /** `muted`: apps que quem assiste não ouve (só na tela inteira). */
+    onpick: (pick: { source: Source; quality: Quality; audio: boolean; muted: string[] }) => void;
     oncancel: () => void;
     /** Trocando a tela de uma transmissão que já está no ar. */
     switching?: boolean;
@@ -25,7 +26,7 @@
   let { settings, onpick, oncancel, switching = false }: Props = $props();
 
   const PREFS_KEY = "abretela.sharePrefs";
-  const prefs = loadJson(PREFS_KEY, { height: 720, fps: 30, audio: true });
+  const prefs = loadJson(PREFS_KEY, { height: 720, fps: 30, audio: true, muted: [] as string[] });
 
   let tab = $state<"window" | "screen">("window");
   let sources = $state<Source[]>([]);
@@ -37,6 +38,10 @@
   // svelte-ignore state_referenced_locally
   let quality = $state<Quality>(clampQuality(prefs, settings));
   let audio = $state(prefs.audio);
+  /** Os apps com som aberto agora (vazio onde o sistema não separa o som por app). */
+  let apps = $state<AudioApp[]>([]);
+  /** Os mutados para quem assiste, lembrados entre uma live e outra (inclusive os fechados agora). */
+  let muted = $state<string[]>(Array.isArray(prefs.muted) ? prefs.muted.filter((m) => typeof m === "string") : []);
   let starting = $state(false);
 
   const visible = $derived(sources.filter((s) => s.kind === tab));
@@ -50,11 +55,18 @@
   const system = $derived(systemPickedSource(sources));
   const selectedSource = $derived(system ?? sources.find((s) => s.id === selected));
 
+  /** A lista de mutar: só na tela inteira com o som ligado (numa janela o som já é só o dela). */
+  const showMute = $derived(tab === "screen" && !system && audio && apps.length > 0);
+
+  function toggleMute(id: string) {
+    muted = muted.includes(id) ? muted.filter((m) => m !== id) : [...muted, id];
+  }
+
   const titleOf = (s: Source) => (s.kind === "screen" ? t("screenN", { n: s.title }) : s.title);
 
   async function refresh() {
     loading = true;
-    sources = await listSources();
+    [sources, apps] = await Promise.all([listSources(), audioApps().catch(() => [])]);
     // sem nenhuma fonte, pode ser a permissão do sistema que falta
     allowed = sources.length > 0 || (await capturePermission().catch(() => true));
     thumbs = {};
@@ -80,8 +92,9 @@
   function go() {
     if (!selectedSource || starting) return;
     starting = true;
-    saveJson(PREFS_KEY, { ...quality, audio });
-    onpick({ source: selectedSource, quality: { ...quality }, audio });
+    saveJson(PREFS_KEY, { ...quality, audio, muted });
+    const muting = audio && selectedSource.kind === "screen" ? muted : [];
+    onpick({ source: selectedSource, quality: { ...quality }, audio, muted: muting });
   }
 </script>
 
@@ -141,6 +154,25 @@
         {/each}
       {/if}
     </div>
+
+    {#if showMute}
+      <div class="mute-row">
+        <span class="opt-label" title={t("muteForViewersHint")}>{t("muteForViewers")}</span>
+        {#each apps as app (app.id)}
+          {@const off = muted.includes(app.id)}
+          <button
+            class="mute-chip"
+            class:off
+            aria-pressed={off}
+            title={off ? t("unmuteApp", { app: app.name }) : t("muteApp", { app: app.name })}
+            onclick={() => toggleMute(app.id)}
+          >
+            <Icon name={off ? "mute" : "volume"} size={14} />
+            <span>{app.name}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     <footer class="picker-foot">
       <div class="opt">
@@ -276,6 +308,55 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     padding: 0 2px;
+  }
+
+  .mute-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    max-height: 96px;
+    overflow-y: auto;
+  }
+
+  .mute-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+  }
+
+  .mute-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mute-chip:hover {
+    background: var(--primary-soft);
+  }
+
+  .mute-chip.off {
+    color: var(--muted);
+    background: none;
+  }
+
+  .mute-chip.off span {
+    text-decoration: line-through;
   }
 
   .picker-foot {

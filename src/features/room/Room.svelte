@@ -244,7 +244,7 @@
     onexit();
   }
 
-  async function startShare(pick: { source: Source; quality: Quality; audio: boolean }) {
+  async function startShare(pick: { source: Source; quality: Quality; audio: boolean; muted: string[] }) {
     notice = null;
     const switching = pickMode === "switch" && snap.sharing;
     try {
@@ -256,6 +256,7 @@
         pick.audio,
         prefs.hwAccel,
         client.nativeSend ? videoBitrate(pick.quality) : undefined,
+        pick.muted,
       );
       const title =
         pick.source.kind === "system"

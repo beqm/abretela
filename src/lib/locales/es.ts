@@ -281,6 +281,10 @@ export const es: Messages = {
   fps: "FPS",
   appAudio: "Audio de la aplicación",
   systemAudio: "Audio del sistema",
+  muteForViewers: "Silenciar para quien mira:",
+  muteForViewersHint: "Tú sigues oyendo todo; solo quien mira deja de oír las apps tachadas.",
+  muteApp: "Silenciar {app} para quien mira",
+  unmuteApp: "Volver a enviar el sonido de {app}",
   startStreaming: "Abrir pantalla",
   starting: "Abriendo...",
 };

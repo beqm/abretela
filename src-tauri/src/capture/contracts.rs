@@ -85,6 +85,35 @@ pub trait AudioSource: Sync {
     /// Captura o som de `target` e manda para `sink` até `stop` ou até o
     /// destino fechar. Bloqueia: roda numa thread própria.
     fn run(&self, target: AudioTarget, sink: Arc<dyn FrameSink>, stop: Arc<AtomicBool>) -> Result<(), BoxError>;
+
+    /// Os apps com som aberto agora, que dá para mutar para quem assiste na
+    /// tela inteira. Vazio quando o sistema não sabe separar o som por app.
+    fn apps(&self) -> Vec<AudioApp> {
+        Vec::new()
+    }
+
+    /// Como `run`, na tela inteira, mas sem o som dos apps de `muted` (os
+    /// `AudioApp::id`). Onde o sistema não sabe separar, é igual a `run`.
+    fn run_muting(
+        &self,
+        target: AudioTarget,
+        muted: &[String],
+        sink: Arc<dyn FrameSink>,
+        stop: Arc<AtomicBool>,
+    ) -> Result<(), BoxError> {
+        let _ = muted;
+        self.run(target, sink, stop)
+    }
+}
+
+/// Um app com som aberto, para a lista de mutar.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct AudioApp {
+    /// O que identifica o app entre uma live e outra (o nome do executável,
+    /// em minúsculas e sem `.exe`): é o que fica salvo como mutado.
+    pub id: String,
+    /// O nome para mostrar.
+    pub name: String,
 }
 
 /// Converte frames do tipo `F` (o frame da fonte de vídeo) em pacotes.

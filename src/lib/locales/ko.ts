@@ -281,6 +281,10 @@ export const ko: Messages = {
   fps: "FPS",
   appAudio: "앱 소리",
   systemAudio: "시스템 소리",
+  muteForViewers: "시청자에게 음소거:",
+  muteForViewersHint: "나에게는 모두 들립니다. 줄이 그어진 앱 소리만 시청자에게 가지 않습니다.",
+  muteApp: "시청자에게 {app} 음소거",
+  unmuteApp: "{app} 소리 다시 보내기",
   startStreaming: "화면 열기",
   starting: "여는 중...",
 };

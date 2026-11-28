@@ -13,6 +13,7 @@
   - A tela é codificada no processador (OpenH264). Para assistir, o sistema precisa do pacote `gstreamer1.0-libav`, que o `.deb` já pede.
   - Vem em `.deb`.
 - A página do convite mostra o botão de download do sistema de quem abriu o link.
+- **Mutar apps para quem assiste** (Windows): ao transmitir a tela inteira com som, a janela de compartilhar mostra os apps com som aberto, e cada um pode ser mutado só para quem assiste (você continua ouvindo). O app lembra das escolhas para as próximas lives. Um app que começa a tocar no meio da live entra em até 2 s.
 - **Senha do servidor só na primeira vez**: ao entrar num servidor próprio de outra pessoa, o app pede a senha uma vez e lembra dela no cofre do sistema (Gerenciador de Credenciais do Windows, Chaves do Mac ou chaveiro do Linux). Se o dono trocar a senha, o app pede de novo; tirar o servidor da lista apaga a senha guardada.
 
 ### Correções
