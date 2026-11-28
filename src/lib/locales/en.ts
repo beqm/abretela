@@ -200,7 +200,12 @@ export const en: Messages = {
   checkForUpdates: "Check for updates",
   upToDate: "You're on the latest version.",
   updateAvailable: "Version {v} is available!",
+  whatsNewTitle: "What's new in {v}",
+  whatsNewClose: "Got it",
+  whatsNewButton: "What's new",
   updateNow: "Update now",
+  updateDownload: "Download",
+  updateDownloadDeb: "On Linux, download and install the new .deb.",
   updateCheckFailed: "Could not check for updates.",
   downloadingUpdate: "Downloading the update...",
 

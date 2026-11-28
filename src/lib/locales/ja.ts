@@ -200,7 +200,12 @@ export const ja: Messages = {
   checkForUpdates: "アップデートを確認",
   upToDate: "最新バージョンです。",
   updateAvailable: "バージョン {v} があります！",
+  whatsNewTitle: "{v} の新機能",
+  whatsNewClose: "OK",
+  whatsNewButton: "新機能",
   updateNow: "今すぐ更新",
+  updateDownload: "ダウンロード",
+  updateDownloadDeb: "Linux では新しい .deb をダウンロードしてインストールしてください。",
   updateCheckFailed: "アップデートを確認できませんでした。",
   downloadingUpdate: "アップデートをダウンロードしています...",
 

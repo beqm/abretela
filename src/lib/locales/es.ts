@@ -200,7 +200,12 @@ export const es: Messages = {
   checkForUpdates: "Buscar actualizaciones",
   upToDate: "Tienes la versión más reciente.",
   updateAvailable: "¡Versión {v} disponible!",
+  whatsNewTitle: "Qué cambió en la {v}",
+  whatsNewClose: "Entendido",
+  whatsNewButton: "Qué cambió",
   updateNow: "Actualizar ahora",
+  updateDownload: "Descargar",
+  updateDownloadDeb: "En Linux, descarga e instala el .deb nuevo.",
   updateCheckFailed: "No se pudieron buscar actualizaciones.",
   downloadingUpdate: "Descargando la actualización...",
 

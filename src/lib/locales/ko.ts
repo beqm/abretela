@@ -200,7 +200,12 @@ export const ko: Messages = {
   checkForUpdates: "업데이트 확인",
   upToDate: "최신 버전을 사용 중입니다.",
   updateAvailable: "{v} 버전을 사용할 수 있습니다!",
+  whatsNewTitle: "{v}의 새로운 점",
+  whatsNewClose: "확인",
+  whatsNewButton: "새로운 점",
   updateNow: "지금 업데이트",
+  updateDownload: "다운로드",
+  updateDownloadDeb: "Linux에서는 새 .deb를 내려받아 설치하세요.",
   updateCheckFailed: "업데이트를 확인할 수 없습니다.",
   downloadingUpdate: "업데이트 다운로드 중...",
 

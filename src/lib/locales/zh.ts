@@ -199,7 +199,12 @@ export const zh: Messages = {
   checkForUpdates: "检查更新",
   upToDate: "已经是最新版本。",
   updateAvailable: "版本 {v} 可用！",
+  whatsNewTitle: "{v} 更新内容",
+  whatsNewClose: "知道了",
+  whatsNewButton: "更新内容",
   updateNow: "立即更新",
+  updateDownload: "下载",
+  updateDownloadDeb: "在 Linux 上，请下载并安装新的 .deb。",
   updateCheckFailed: "无法检查更新。",
   downloadingUpdate: "正在下载更新...",
 

@@ -202,7 +202,12 @@ export const pt = {
   checkForUpdates: "Procurar atualizações",
   upToDate: "Você está na versão mais recente.",
   updateAvailable: "Versão {v} disponível!",
+  whatsNewTitle: "O que mudou na {v}",
+  whatsNewClose: "Entendi",
+  whatsNewButton: "O que mudou",
   updateNow: "Atualizar agora",
+  updateDownload: "Baixar",
+  updateDownloadDeb: "No Linux, baixe e instale o .deb novo.",
   updateCheckFailed: "Não foi possível procurar atualizações.",
   downloadingUpdate: "Baixando a atualização...",
 
