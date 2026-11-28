@@ -6,6 +6,7 @@
 pub mod commands;
 pub mod contracts;
 mod convert;
+mod limiter;
 pub mod packet;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -147,6 +148,8 @@ pub fn start(id: &str, height: u32, fps: u32, audio: bool, gpu: bool, native_sen
 
     if let (true, Some(target)) = (audio, info.audio) {
         let stop = stop.clone();
+        // o som do app vem antes do limitador do sistema e pode passar de 1,0
+        let sink: Arc<dyn FrameSink> = Arc::new(limiter::Limited::new(sink));
         thread::spawn(move || {
             if let Err(e) = AUDIO.run(target, sink, stop) {
                 log_error!("audio", "Audio capture failed: {e}");

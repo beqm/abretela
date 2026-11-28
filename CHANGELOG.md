@@ -15,6 +15,9 @@
 - A página do convite mostra o botão de download do sistema de quem abriu o link.
 - **Senha do servidor só na primeira vez**: ao entrar num servidor próprio de outra pessoa, o app pede a senha uma vez e lembra dela no cofre do sistema (Gerenciador de Credenciais do Windows, Chaves do Mac ou chaveiro do Linux). Se o dono trocar a senha, o app pede de novo; tirar o servidor da lista apaga a senha guardada.
 
+### Correções
+- **Som estourando para quem assiste** em jogos altos (freada, motor, explosão): o som de um app é capturado antes do volume e do limitador do Windows e podia passar do máximo, e quem assistia ouvia cortado. Agora o app abaixa o volume só nesses picos, igual ao sistema faz para quem transmite. Vale para o envio nativo e o pelo WebView.
+
 ### Por dentro
 - O que é de cada sistema fica em pastas próprias (`capture/mac`, `capture/linux`, `encode/mac`, `encode/linux`, `logging/unix`); nada muda no Windows.
 - No Linux o WebView (WebKitGTK) não tem WebRTC: o app recebe a tela dos outros no Rust (`receive/`, o espelho do envio nativo) e o WebView só decodifica e mostra.
