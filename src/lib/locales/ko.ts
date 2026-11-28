@@ -86,7 +86,7 @@ export const ko: Messages = {
   selfhostDelete: "삭제",
   selfhostNew: "새 서버",
   selfhostNamePlaceholder: "예: 친구들 방",
-  selfhostPasswordHint: "들어오는 사람은 매번 이 비밀번호를 입력합니다.",
+  selfhostPasswordHint: "들어오는 사람은 처음 한 번만 이 비밀번호를 입력합니다. 앱이 기억합니다.",
   selfhostCreate: "서버 만들기",
   selfhostStepSubdomain: "주소 준비 중…",
   selfhostStepTurn: "중계(TURN) 키 만드는 중…",

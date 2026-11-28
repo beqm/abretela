@@ -13,6 +13,7 @@
   - A tela é codificada no processador (OpenH264). Para assistir, o sistema precisa do pacote `gstreamer1.0-libav`, que o `.deb` já pede.
   - Vem em `.deb`.
 - A página do convite mostra o botão de download do sistema de quem abriu o link.
+- **Senha do servidor só na primeira vez**: ao entrar num servidor próprio de outra pessoa, o app pede a senha uma vez e lembra dela no cofre do sistema (Gerenciador de Credenciais do Windows, Chaves do Mac ou chaveiro do Linux). Se o dono trocar a senha, o app pede de novo; tirar o servidor da lista apaga a senha guardada.
 
 ### Por dentro
 - O que é de cada sistema fica em pastas próprias (`capture/mac`, `capture/linux`, `encode/mac`, `encode/linux`, `logging/unix`); nada muda no Windows.

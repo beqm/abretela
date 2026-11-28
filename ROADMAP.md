@@ -541,9 +541,12 @@ está hoje (`tunnel::Tunnel`), e falam o mesmo protocolo de sala (`join`,
   lista. Cabe uma lista grande (rola). No meio, as ações de hoje: criar uma
   sala pelo túnel e entrar por um link.
 - **Senha:** o link do servidor não leva a senha (no túnel continua levando), e
-  o app **pede a senha toda vez** (decidido em novembro de 2026, por
-  segurança): a lista guarda só o endereço e o nome. O dono entra pela chave de
-  administrador, sem senha.
+  o app **pede a senha só na primeira vez** (mudou em novembro de 2026, a
+  pedido de quem usa; antes pedia toda vez): a senha que funcionou fica no cofre
+  do sistema (Gerenciador de Credenciais, Chaves do macOS ou Secret Service),
+  nunca no `localStorage`; a lista guarda só o endereço e o nome. Senha errada
+  apaga a guardada e pede de novo; tirar o servidor da lista também a apaga. O
+  dono entra pela chave de administrador, sem senha.
 - **Quem é o dono:** a chave de administrador (abaixo), nunca o nome, o IP ou a
   conta da Cloudflare. O app do dono manda a chave ao conectar; o Worker compara
   com o hash que guarda e marca aquela conexão como dona. Depois: chaves de

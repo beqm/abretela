@@ -86,7 +86,7 @@ export const es: Messages = {
   selfhostDelete: "Borrar",
   selfhostNew: "Nuevo servidor",
   selfhostNamePlaceholder: "Ej.: Sala de los amigos",
-  selfhostPasswordHint: "Quien entre escribe esta contraseña cada vez.",
+  selfhostPasswordHint: "Quien entre escribe esta contraseña la primera vez; la app la recuerda.",
   selfhostCreate: "Crear servidor",
   selfhostStepSubdomain: "Preparando la dirección…",
   selfhostStepTurn: "Creando la clave de retransmisión (TURN)…",

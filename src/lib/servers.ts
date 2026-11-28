@@ -1,9 +1,19 @@
 // A lista de servidores da tela inicial (ROADMAP, seção 6): os que esta pessoa
 // administra (`OwnedServer`, montados por este PC) e os em que ela já entrou
-// (`JoinedServer`). A senha da sala nunca fica guardada: o app pede toda vez.
-// O dono entra pela chave de administrador (no Gerenciador de Credenciais).
+// (`JoinedServer`). A senha dos servidores de outras pessoas é pedida só na
+// primeira vez e fica no cofre do sistema (Gerenciador de Credenciais, Chaves
+// do macOS ou Secret Service), nunca nesta lista. O dono entra pela chave de
+// administrador, no mesmo cofre.
 
+import { invoke } from "@tauri-apps/api/core";
 import type { OwnedServer } from "./selfhost";
+
+/** A senha de um servidor em que já entrei, no cofre do sistema. */
+export const serverPassword = {
+  get: (url: string) => invoke<string | null>("server_password", { url }),
+  save: (url: string, password: string) => invoke<void>("server_password_save", { url, password }),
+  forget: (url: string) => invoke<void>("server_password_forget", { url }),
+};
 
 export type JoinedServer = { url: string; name: string };
 

@@ -86,7 +86,7 @@ export const zh: Messages = {
   selfhostDelete: "删除",
   selfhostNew: "新服务器",
   selfhostNamePlaceholder: "例如：朋友们的房间",
-  selfhostPasswordHint: "进入的人每次都要输入这个密码。",
+  selfhostPasswordHint: "进入的人只需第一次输入这个密码，应用会记住它。",
   selfhostCreate: "创建服务器",
   selfhostStepSubdomain: "正在准备地址…",
   selfhostStepTurn: "正在创建中继（TURN）密钥…",

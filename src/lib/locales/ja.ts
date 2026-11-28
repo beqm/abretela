@@ -86,7 +86,7 @@ export const ja: Messages = {
   selfhostDelete: "削除",
   selfhostNew: "新しいサーバー",
   selfhostNamePlaceholder: "例: 友だちのルーム",
-  selfhostPasswordHint: "入室する人は毎回このパスワードを入力します。",
+  selfhostPasswordHint: "入室する人は最初の 1 回だけこのパスワードを入力します。アプリが覚えます。",
   selfhostCreate: "サーバーを作成",
   selfhostStepSubdomain: "アドレスを準備中…",
   selfhostStepTurn: "中継 (TURN) のキーを作成中…",

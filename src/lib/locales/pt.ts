@@ -86,7 +86,7 @@ export const pt = {
   selfhostDelete: "Apagar",
   selfhostNew: "Novo servidor",
   selfhostNamePlaceholder: "Ex.: Sala dos amigos",
-  selfhostPasswordHint: "Quem entrar digita esta senha toda vez.",
+  selfhostPasswordHint: "Quem entrar digita esta senha na primeira vez; o app lembra dela.",
   selfhostCreate: "Criar servidor",
   selfhostStepSubdomain: "Preparando o endereço…",
   selfhostStepTurn: "Criando a chave do repasse (TURN)…",

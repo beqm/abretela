@@ -2,10 +2,11 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { RoomClient } from "../../lib/room";
+  import { describeError, log } from "../../lib/log";
   import { shouldSendNatively } from "../../lib/capture/support";
   import { RoomRefusedError, WrongPasswordError, type RefusedReason } from "../../lib/signaling";
   import { parseInvite, roomLabel } from "../../lib/invite";
-  import { forget, remember, sameServer, serverEntries, type ServerEntry } from "../../lib/servers";
+  import { forget, remember, sameServer, serverEntries, serverPassword, type ServerEntry } from "../../lib/servers";
   import { selfhost } from "../../lib/selfhost";
   import PasswordModal from "../../ui/PasswordModal.svelte";
   import ServerRail from "./ServerRail.svelte";
@@ -159,7 +160,7 @@
     enter({ room: invite.room, ws: invite.ws, password: invite.password, owned: known?.owned ?? null });
   }
 
-  /** Entra num servidor da lista: pede a senha (ou entra como dono, pela chave). */
+  /** Entra num servidor da lista: pela senha guardada, pela chave de dono ou pede a senha. */
   function joinServer(entry: ServerEntry) {
     const url = entry.url.replace(/\/+$/, "");
     enter({ room: url, ws: `${url.replace(/^http/, "ws")}/ws`, password: null, owned: entry.owned });
@@ -170,9 +171,12 @@
     if (busy) return;
     error = null;
     busy = t("connecting");
-    const password = typed ?? target.password;
     // o dono entra pela chave de administrador deste PC, sem senha
     const admin = !typed && target.owned ? await selfhost.adminKey(target.owned).catch(() => null) : null;
+    // servidor de outra pessoa: a senha só é pedida na primeira vez, depois vem do cofre do sistema
+    const saved =
+      !typed && !target.password && !admin ? await serverPassword.get(target.room).catch(() => null) : null;
+    const password = typed ?? target.password ?? saved;
     if (!password && !admin) {
       busy = null;
       askPassword = { target, error: null };
@@ -187,14 +191,20 @@
       await client.connect((n) => {
         if (n > 1) busy = t("connectingAttempt", { n });
       });
-      // servidor próprio de outra pessoa: fica na lista (sem a senha, que é pedida toda vez)
+      // servidor próprio de outra pessoa: fica na lista, e a senha que funcionou no cofre do sistema
       if (client.server && !target.owned) {
         prefs.joinedServers = remember(prefs.joinedServers, { url: target.room, name: client.server.name });
+        if (password && password !== saved) {
+          serverPassword
+            .save(target.room, password)
+            .catch((e) => log.warn("room", `Could not save the server's password: ${describeError(e)}`));
+        }
       }
       onenter({ client, room: target.room, password: password ?? "", isHost: false });
     } catch (e) {
       busy = null;
-      // senha errada (ou a chave de dono não vale mais): pede de novo no modal
+      // senha errada (a guardada mudou, ou a chave de dono não vale mais): pede de novo no modal
+      if (e instanceof WrongPasswordError && saved) serverPassword.forget(target.room).catch(() => {});
       if (e instanceof WrongPasswordError) askPassword = { target: { ...target, owned: null }, error: errText(e) };
       else error = errText(e);
     }
@@ -202,6 +212,7 @@
 
   function forgetServer(entry: ServerEntry) {
     prefs.joinedServers = forget(prefs.joinedServers, entry.url);
+    serverPassword.forget(entry.url).catch(() => {});
   }
 </script>
 

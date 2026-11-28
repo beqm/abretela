@@ -86,7 +86,7 @@ export const en: Messages = {
   selfhostDelete: "Delete",
   selfhostNew: "New server",
   selfhostNamePlaceholder: "E.g.: Friends' room",
-  selfhostPasswordHint: "People type this password every time they join.",
+  selfhostPasswordHint: "People type this password the first time they join; the app remembers it.",
   selfhostCreate: "Create server",
   selfhostStepSubdomain: "Preparing the address…",
   selfhostStepTurn: "Creating the relay (TURN) key…",
